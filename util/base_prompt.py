@@ -117,7 +117,7 @@ def create_training_example(format, question, context, choice, answer, lecture, 
     elif input_format == "QCLEM":
         input = f"Question: {question}\nContext: {context}\nBECAUSE: {lecture} {solution}\nOptions: {choice}\n"
 
-    input+="Response:"
+    input+="Response: "
     input='\n'+input
 
 

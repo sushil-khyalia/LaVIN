@@ -14,9 +14,9 @@ def _load_and_redistribute_checkpoint(llama_model_path, model_name):
 
     with open(Path(llama_model_path) / model_name / 'params.json') as f:
         params = json.load(f)
-    tokenizer = Tokenizer(model_path=str(Path(llama_model_path) / 'tokenizer.model'))
+    tokenizer = Tokenizer(model_path=str(Path(llama_model_path) /  model_name / 'tokenizer.model'))
     print('Using model path: %s, model_name: %s' % (llama_model_path, model_name))
-    if model_name=='7B':
+    if model_name=='7B' or model_name =='8B':
         checkpoint = torch.load(llama_model_path + model_name + '/consolidated.00.pth', map_location="cpu")
         return checkpoint, tokenizer, params
 

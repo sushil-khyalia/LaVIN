@@ -18,6 +18,8 @@ def train_one_epoch(model: torch.nn.Module,
     model.train(True)
     metric_logger = misc.MetricLogger(delimiter="  ")
     metric_logger.add_meter('lr', misc.SmoothedValue(window_size=1, fmt='{value:.6f}'))
+    lr = optimizer.param_groups[0]["lr"]
+    metric_logger.update(lr=lr)
     header = 'Epoch: [{}]'.format(epoch)
     print_freq = 10
 
@@ -89,6 +91,8 @@ def val_one_epoch(model: torch.nn.Module,
     model.eval()
     metric_logger = misc.MetricLogger(delimiter="  ")
     metric_logger.add_meter('lr', misc.SmoothedValue(window_size=1, fmt='{value:.6f}'))
+    lr = optimizer.param_groups[0]["lr"]
+    metric_logger.update(lr=lr)
     header = 'Epoch: [{}]'.format(epoch)
     print_freq = 10
 

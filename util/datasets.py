@@ -34,7 +34,7 @@ class ScienceQADataSet(Data.Dataset):
         pid_splits = json.load(open(os.path.join(args.data_root, 'pid_splits.json')))
         captions = json.load(open(args.caption_file))["captions"]
         self.image_path=os.path.join(args.data_root,'images',split)
-        self.tokenizer = Tokenizer(model_path=model_path + '/tokenizer.model')
+        self.tokenizer = Tokenizer(model_path= model_path + '8B/tokenizer.model')
         self.max_words = max_words
         self.max_image_feats=max_image_feats
         self.split=split
@@ -48,7 +48,7 @@ class ScienceQADataSet(Data.Dataset):
         self.transforms=transforms.Compose([transforms.Resize((224, 224), interpolation=Image.BICUBIC),transforms.ToTensor(), transforms.Normalize(IMAGENET_DEFAULT_MEAN, IMAGENET_DEFAULT_STD)])
 
     def tokenize(self,prompt,answer):
-        example=prompt+answer
+        example=prompt + ' ' + answer
         # print(prompt)
         prompt=torch.tensor(self.tokenizer.encode(prompt, bos=True, eos=False), dtype=torch.int64)
         example = torch.tensor(self.tokenizer.encode(example, bos=True, eos=True), dtype=torch.int64)

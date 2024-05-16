@@ -56,7 +56,7 @@ def _load_and_redistribute_checkpoint(llama_model_path, model_name):
 
     with open(Path(llama_model_path) / model_name / 'params.json') as f:
         params = json.load(f)
-    tokenizer = Tokenizer(model_path=str(Path(llama_model_path) / 'tokenizer.model'))
+    tokenizer = Tokenizer(model_path=str(Path(llama_model_path) / '8B/tokenizer.model'))
     print('Using model path: %s, model_name: %s' % (llama_model_path, model_name))
     if model_name=='7B':
         checkpoint = torch.load(llama_model_path + model_name + '/consolidated.00.pth', map_location="cpu")
@@ -232,7 +232,7 @@ def print_scores(scores):
 
 def load(
     ckpt_dir: str,
-llm_model:str,
+    llm_model:str,
     tokenizer_path: str,
     adapter_path: str,
     local_rank: int,
@@ -404,7 +404,7 @@ def main(
             if len(pred) >= 1:
                 pred = pred[0]  # 'A', 'B', ...
             else:
-                print(result)
+                # print(result)
                 pred = "FAILED"
             preds.append(pred)
 

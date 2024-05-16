@@ -19,7 +19,7 @@ from pathlib import Path
 import torch
 import torch.distributed as dist
 from torch import inf
-
+import pdb
 
 class SmoothedValue(object):
     """Track a series of values and provide access to smoothed values over a
@@ -64,7 +64,7 @@ class SmoothedValue(object):
 
     @property
     def global_avg(self):
-        return self.total / self.count
+        return self.total / (self.count + 1e-12)
 
     @property
     def max(self):
