@@ -21,6 +21,7 @@ import torch
 import pdb
 from timm.models.layers import  DropPath
 import clip
+import vivit
 from  torch.cuda.amp import autocast
 # @dataclass
 # class ModelArgs:
@@ -574,11 +575,12 @@ class Transformer(nn.Module):
             params.rope_theta,
         )
 
-        self.backbone = clip.load('ViT-L/14')[0]
+        # self.backbone = clip.load('ViT-L/14')[0]
+        self.backbone = vivit.VivitModel.from_pretrained("google/vivit-b-16x2-kinetics400")
 
 
         #handcraft define self.backbone.visual.transformer.width
-        self.adapter_proj = AdapterMLP(1024, params.hidden_proj, params.dim).float()
+        self.adapter_proj = AdapterMLP(768, params.hidden_proj, params.dim).float()
         self.adapter_modality_embedding=nn.Embedding(2,params.dim).float()
 
 
