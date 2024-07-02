@@ -183,6 +183,85 @@ def forward_vivit_full(self, hidden_states, head_mask=None, output_attentions=Fa
     return outputs
 
 
+def forward_whisper(
+        self,
+        hidden_states: torch.Tensor,
+        attention_mask: torch.Tensor,
+        layer_head_mask: torch.Tensor,
+        output_attentions: bool = False,
+) -> torch.Tensor:
+    residual = hidden_states
+    hidden_states = self.adapter_attn(self.self_attn_layer_norm(hidden_states))
+    hidden_states, attn_weights, _ = self.self_attn(
+        hidden_states=hidden_states,
+        attention_mask=attention_mask,
+        layer_head_mask=layer_head_mask,
+        output_attentions=output_attentions,
+    )
+    hidden_states = nn.functional.dropout(hidden_states, p=self.dropout, training=self.training)
+    hidden_states = residual + hidden_states
+
+    residual = hidden_states
+    hidden_states = self.final_layer_norm(hidden_states)
+    hidden_states = self.activation_fn(self.fc1(hidden_states))
+    hidden_states = nn.functional.dropout(hidden_states, p=self.activation_dropout, training=self.training)
+    hidden_states = self.fc2(hidden_states)
+    hidden_states = nn.functional.dropout(hidden_states, p=self.dropout, training=self.training)
+    hidden_states = residual + hidden_states
+
+    if hidden_states.dtype == torch.float16 and (
+        torch.isinf(hidden_states).any() or torch.isnan(hidden_states).any()
+    ):
+        clamp_value = torch.finfo(hidden_states.dtype).max - 1000
+        hidden_states = torch.clamp(hidden_states, min=-clamp_value, max=clamp_value)
+
+    outputs = (hidden_states,)
+
+    if output_attentions:
+        outputs += (attn_weights,)
+
+    return outputs
+
+def forward_whisper_full(
+        self,
+        hidden_states: torch.Tensor,
+        attention_mask: torch.Tensor,
+        layer_head_mask: torch.Tensor,
+        output_attentions: bool = False,
+) -> torch.Tensor:
+    residual = hidden_states
+    hidden_states = self.adapter_attn(self.self_attn_layer_norm(hidden_states))
+    hidden_states, attn_weights, _ = self.self_attn(
+        hidden_states=hidden_states,
+        attention_mask=attention_mask,
+        layer_head_mask=layer_head_mask,
+        output_attentions=output_attentions,
+    )
+    hidden_states = nn.functional.dropout(hidden_states, p=self.dropout, training=self.training)
+    hidden_states = residual + hidden_states
+
+    residual = hidden_states
+    hidden_states = self.adapter_mlp(self.final_layer_norm(hidden_states))
+    hidden_states = self.activation_fn(self.fc1(hidden_states))
+    hidden_states = nn.functional.dropout(hidden_states, p=self.activation_dropout, training=self.training)
+    hidden_states = self.fc2(hidden_states)
+    hidden_states = nn.functional.dropout(hidden_states, p=self.dropout, training=self.training)
+    hidden_states = residual + hidden_states
+
+    if hidden_states.dtype == torch.float16 and (
+        torch.isinf(hidden_states).any() or torch.isnan(hidden_states).any()
+    ):
+        clamp_value = torch.finfo(hidden_states.dtype).max - 1000
+        hidden_states = torch.clamp(hidden_states, min=-clamp_value, max=clamp_value)
+
+    outputs = (hidden_states,)
+
+    if output_attentions:
+        outputs += (attn_weights,)
+
+    return outputs
+
+
 def set_MMAdapter(model, method, dim=8, s=1, set_forward=True,t=10,gradient_checkpointing=False):
     if method == 'block':
         # not support right now
@@ -261,4 +340,26 @@ def set_Vivit_Adapter(model, method, dim=8, s=1, set_forward=True, t=10.):
                 setattr(_, 'forward', bound_method)
         elif len(list(_.children())) != 0:
             set_Vivit_Adapter(_, method, dim, s, set_forward=set_forward, t=t)
+    return
+
+from whisper.modeling_whisper import WhisperEncoderLayer
+def set_Whisper_Adapter(model, method, dim=8, s=1, set_forward=True, t=10.):
+    for _ in model.children():
+        if type(_) == WhisperEncoderLayer:
+            if method=='router':
+                _.adapter_attn = RepAdapter_Router(1280, hidden_dim=dim, scale=s,  t=t)
+            elif method=='router_block':
+                _.adapter_attn = RepAdapter_Router(1280, hidden_dim=dim, scale=s,  t=t)
+                _.adapter_mlp = RepAdapter_Router(1280, hidden_dim=dim, scale=s,  t=t)
+            else:
+                _.adapter_attn = RepAdapter(768, hidden_dim=dim, scale=s)
+            _.s = s
+            if method=='router_block':
+                bound_method = forward_vivit_full.__get__(_, _.__class__)
+            else:
+                bound_method = forward_vivit.__get__(_, _.__class__)
+            if set_forward:
+                setattr(_, 'forward', bound_method)
+        elif len(list(_.children())) != 0:
+            set_Whisper_Adapter(_, method, dim, s, set_forward=set_forward, t=t)
     return

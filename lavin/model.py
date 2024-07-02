@@ -22,6 +22,7 @@ import pdb
 from timm.models.layers import  DropPath
 import clip
 import vivit
+import whisper
 from  torch.cuda.amp import autocast
 # @dataclass
 # class ModelArgs:
@@ -576,11 +577,12 @@ class Transformer(nn.Module):
         )
 
         # self.backbone = clip.load('ViT-L/14')[0]
-        self.backbone = vivit.VivitModel.from_pretrained("google/vivit-b-16x2-kinetics400")
-
+        self.video_backbone = vivit.VivitModel.from_pretrained("google/vivit-b-16x2-kinetics400")
+        self.audio_backbone = whisper.WhisperModel.from_pretrained("openai/whisper-large-v3").encoder
 
         #handcraft define self.backbone.visual.transformer.width
-        self.adapter_proj = AdapterMLP(768, params.hidden_proj, params.dim).float()
+        self.video_adapter_proj = AdapterMLP(768, params.hidden_proj, params.dim).float()
+        self.audio_adapter_proj = AdapterMLP(1280, params.hidden_proj, params.dim).float()
         self.adapter_modality_embedding=nn.Embedding(2,params.dim).float()
 
 
