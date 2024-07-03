@@ -355,9 +355,9 @@ def set_Whisper_Adapter(model, method, dim=8, s=1, set_forward=True, t=10.):
                 _.adapter_attn = RepAdapter(768, hidden_dim=dim, scale=s)
             _.s = s
             if method=='router_block':
-                bound_method = forward_vivit_full.__get__(_, _.__class__)
+                bound_method = forward_whisper_full.__get__(_, _.__class__)
             else:
-                bound_method = forward_vivit.__get__(_, _.__class__)
+                bound_method = forward_whisper.__get__(_, _.__class__)
             if set_forward:
                 setattr(_, 'forward', bound_method)
         elif len(list(_.children())) != 0:

@@ -19,7 +19,7 @@ from pathlib import Path
 import torch
 import torch.distributed as dist
 from torch import inf
-import pdb
+import numpy as np
 
 class SmoothedValue(object):
     """Track a series of values and provide access to smoothed values over a
@@ -340,3 +340,38 @@ def all_reduce_mean(x):
         return x_reduce.item()
     else:
         return x
+
+
+def sample_frame_indices(clip_len, frame_sample_rate, seg_len):
+    '''
+    Sample a given number of frame indices from the video.
+    Args:
+        clip_len (`int`): Total number of frames to sample.
+        frame_sample_rate (`int`): Sample every n-th frame.
+        seg_len (`int`): Maximum allowed index of sample's last frame.
+    Returns:
+        indices (`List[int]`): List of sampled frame indices
+    '''
+    converted_len = int(clip_len * frame_sample_rate)
+    if converted_len >= seg_len+1:
+        end_idx = seg_len
+        start_idx = 0
+    else:
+        end_idx = np.random.randint(converted_len, seg_len+1)
+        start_idx = end_idx - converted_len
+    indices = np.linspace(start_idx, end_idx, num=clip_len)
+    indices = np.clip(indices, start_idx, end_idx - 1).astype(np.int64)
+    return indices
+
+def read_video_pyav(container, indices):
+    '''
+    Decode the video with PyAV decoder.
+    Args:
+        container (`av.container.input.InputContainer`): PyAV container.
+        indices (`List[int]`): List of frame indices to decode.
+    Returns:
+        result (np.ndarray): np array of decoded frames of shape (num_frames, height, width, 3).
+    '''
+    container.seek(0)
+    frames = list(container.decode(video=0))
+    return np.stack([frames[idx].to_ndarray(format="rgb24") for idx in indices])

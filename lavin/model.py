@@ -611,35 +611,108 @@ class Transformer(nn.Module):
         new_labels = torch.cat(new_labels, 0)
         return new_examples,new_labels
 
-    def forward(self, examples, labels,images=None, prefix_img=None, prefix_nonimg=None,img_indicators=None):
+    def insert_audio_video_embeds(self, examples, labels, video_embeds, prefix_video, audio_embeds, prefix_audio):
+        _bsz, seqlen,_ = examples.shape
+        new_examples=[]
+        new_labels=[]
+        for i, (example,label) in enumerate(zip(examples,labels)):
+            new_example=torch.cat([example[:1],prefix_video,video_embeds[i],prefix_audio,audio_embeds[i],example[1:]],0)
+            new_label=torch.cat([label[:1],
+                                    torch.zeros(prefix_video.shape[0]+video_embeds.shape[1]+prefix_audio.shape[0]+audio_embeds.shape[1]).to(examples.device).type_as(labels),
+                                    label[1:]])
+            new_example = new_example[:seqlen]
+            new_label = new_label[:seqlen]
+            new_examples.append(new_example.unsqueeze(0))
+            new_labels.append(new_label.unsqueeze(0))
+        new_examples = torch.cat(new_examples, 0)
+        new_labels = torch.cat(new_labels, 0)    
+        return new_examples, new_labels
+
+    # def forward(self, examples, labels,images=None, prefix_img=None, prefix_nonimg=None,img_indicators=None):
+
+    #     # print(images.dtype)
+    #     examples = examples.cuda()
+    #     labels = labels.cuda()
+    #     images = images.cuda()
+    #     prefix_img = prefix_img.cuda()
+    #     prefix_nonimg = prefix_nonimg.cuda()
+    #     image_embeds = self.backbone.encode_image(images).half()
+
+    #     # print(img_indicators)
+    #     if isinstance(img_indicators,list):
+    #         img_indicators = torch.Tensor(img_indicators).long()
+    #     img_indicators = img_indicators.to(image_embeds.device)
+    #     modality_embed=self.adapter_modality_embedding(img_indicators.unsqueeze(1))
+
+    #     # with autocast():
+    #     image_embeds=self.adapter_proj(image_embeds)
+
+    #     # print(image_embeds.shape)
+
+    #     _bsz, seqlen = examples.shape
+
+    #     examples = self.tok_embeddings(examples)
+    #     prefix_img=self.tok_embeddings(prefix_img.unsqueeze(0)).squeeze(0)
+    #     prefix_nonimg=self.tok_embeddings(prefix_nonimg.unsqueeze(0)).squeeze(0)
+
+
+    #     h,labels=self.insert_image_embeds(examples,labels,image_embeds,prefix_img,prefix_nonimg,img_indicators)
+
+    #     h=torch.cat([modality_embed.half(),h],1)[:,:seqlen]
+    #     modality_labels=torch.zeros(_bsz,1).to(labels.device).type_as(labels)
+    #     labels=torch.cat([modality_labels,labels],1)[:,:seqlen]
+
+
+    #     freqs_cis = self.freqs_cis.to(h.device)
+    #     freqs_cis = freqs_cis[:seqlen]
+    #     mask = None
+    #     mask = torch.full((1, 1, seqlen, seqlen), float("-inf"), device=h.device)
+    #     mask = torch.triu(mask, diagonal=0 + 1).type_as(h)
+
+    #     #mask decision token
+    #     mask[:,:,1:,0]=float("-inf")
+
+    #     start_pos = 0
+    #     for layer in self.layers:
+    #         h = layer(h, start_pos, freqs_cis, mask)
+
+    #     h = self.norm(h)
+    #     output = self.output(h)
+    #     output = output[:, :-1, :].reshape(-1, self.vocab_size)
+    #     labels = labels[:, 1:].flatten()
+
+
+    #     c_loss = self.criterion(output, labels)
+    #     return c_loss
+    
+    def forward(self, examples, labels, videos = None, prefix_video = None, audios = None, prefix_audio = None):
 
         # print(images.dtype)
         examples = examples.cuda()
         labels = labels.cuda()
-        images = images.cuda()
-        prefix_img = prefix_img.cuda()
-        prefix_nonimg = prefix_nonimg.cuda()
-        image_embeds = self.backbone.encode_image(images).half()
-
-        # print(img_indicators)
-        if isinstance(img_indicators,list):
-            img_indicators = torch.Tensor(img_indicators).long()
-        img_indicators = img_indicators.to(image_embeds.device)
-        modality_embed=self.adapter_modality_embedding(img_indicators.unsqueeze(1))
+        videos = videos.cuda()
+        audios =  audios.cuda()
+        prefix_video = prefix_video.cuda()
+        prefix_audio = prefix_audio.cuda()
+        video_embeds = self.video_backbone(videos.half())
+        audio_embeds = self.audio_backbone(audios.half())
 
         # with autocast():
-        image_embeds=self.adapter_proj(image_embeds)
+        video_embeds=self.video_adapter_proj(video_embeds)
+        audio_embeds=self.audio_adapter_proj(audio_embeds)
 
         # print(image_embeds.shape)
 
         _bsz, seqlen = examples.shape
 
+        modality_embed=self.adapter_modality_embedding(torch.ones(_bsz,1).long().cuda())
+
         examples = self.tok_embeddings(examples)
-        prefix_img=self.tok_embeddings(prefix_img.unsqueeze(0)).squeeze(0)
-        prefix_nonimg=self.tok_embeddings(prefix_nonimg.unsqueeze(0)).squeeze(0)
+        prefix_audio=self.tok_embeddings(prefix_audio.unsqueeze(0)).squeeze(0)
+        prefix_video=self.tok_embeddings(prefix_video.unsqueeze(0)).squeeze(0)
 
 
-        h,labels=self.insert_image_embeds(examples,labels,image_embeds,prefix_img,prefix_nonimg,img_indicators)
+        h,labels=self.insert_audio_video_embeds(examples, labels, video_embeds, prefix_video, audio_embeds, prefix_audio)
 
         h=torch.cat([modality_embed.half(),h],1)[:,:seqlen]
         modality_labels=torch.zeros(_bsz,1).to(labels.device).type_as(labels)

@@ -871,7 +871,7 @@ class WhisperEncoder(WhisperPreTrainedModel):
 
                 hidden_states = layer_outputs[0]
                 if (idx+1)%4 == 0:
-                    ret_feats.append(hidden_states[:,:1])
+                    ret_feats.append(hidden_states.mean(dim=1,keepdim=True))
         #     if output_attentions:
         #         all_attentions = all_attentions + (layer_outputs[1],)
 

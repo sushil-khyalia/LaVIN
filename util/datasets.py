@@ -22,6 +22,75 @@ from util.base_prompt import *
 import torch
 from lavin import Tokenizer
 import copy
+import pandas as pd
+from util.misc import sample_frame_indices, read_video_pyav
+from vivit import VivitImageProcessor
+from whisper import WhisperFeatureExtractor
+import av
+import soundfile
+import numpy as np
+
+class MOSIDataset(Data.Dataset):
+    def __init__(self, args, split, model_path, max_words=512):
+        super(MOSIDataset, self).__init__()
+        self.args = args
+        # --------------------------
+        # ---- Raw data loading ---
+        # --------------------------        
+        self.tokenizer = Tokenizer(model_path= model_path + '8B/tokenizer.model')
+        self.max_words = max_words
+        self.split=split
+        self.raw_data = pd.read_csv('/work/skhyalia/dataset_original/mosi_sentiment_%s.csv' % (split))
+        self.image_processor = VivitImageProcessor.from_pretrained("google/vivit-b-16x2-kinetics400")
+        self.feature_extractor = WhisperFeatureExtractor.from_pretrained("openai/whisper-large-v3")
+        print(f"number of examples in split {split}: {len(self.raw_data)}\n")
+
+    def tokenize(self,prompt,answer):
+        example=prompt + ' ' + answer
+        # print(prompt)
+        prompt=torch.tensor(self.tokenizer.encode(prompt, bos=True, eos=False), dtype=torch.int64)
+        example = torch.tensor(self.tokenizer.encode(example, bos=True, eos=True), dtype=torch.int64)
+        padding = self.max_words - example.shape[0]
+        if padding > 0:
+            example = torch.cat((example, torch.zeros(padding, dtype=torch.int64) - 1))
+        elif padding < 0:
+            example = example[:self.max_words]
+        labels = copy.deepcopy(example)
+        labels[:len(prompt)] = -1
+        example_mask = example.ge(0)
+        label_mask = labels.ge(0)
+        example[~example_mask] = 0
+        labels[~label_mask] = 0
+        example_mask = example_mask.float()
+        label_mask = label_mask.float()
+        return example, labels, example_mask,label_mask
+    
+    def __getitem__(self, idx):
+        data_point = self.raw_data.iloc[idx]
+        video_path = data_point['video']
+        container = av.open(video_path)
+        indices = sample_frame_indices(clip_len=32, frame_sample_rate=4, seg_len=container.streams.video[0].frames)
+        video = read_video_pyav(container=container, indices=indices)
+        video = self.image_processor(list(video), return_tensors="pt").pixel_values.squeeze(0)
+        audio_path = data_point['audio']
+        waveform, sampling_rate = soundfile.read(audio_path)
+        audio = self.feature_extractor(waveform, sampling_rate=sampling_rate, return_tensors="pt").input_features.squeeze(0)
+        prompt_text = f"Text: {data_point['sentence']}"
+        prompt_text+="Response: "
+        prompt_text='\n'+prompt_text
+        prompt_text = prompt_text.replace("  ", " ").strip()
+        label = str(np.round(data_point['y']))
+        prompt_answer = f"The sentiment is {label}"
+        example, labels, example_mask, label_mask=self.tokenize(prompt_text,prompt_answer)
+
+        return example, labels, example_mask, video, audio
+
+    def __len__(self):
+        return len(self.raw_data)
+
+    def shuffle_list(self, list):
+        random.shuffle(list)
+
 
 class ScienceQADataSet(Data.Dataset):
     def __init__(self, args,split,model_path,max_words=512,max_image_feats=1):
