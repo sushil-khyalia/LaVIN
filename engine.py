@@ -32,17 +32,18 @@ def train_one_epoch(model: torch.nn.Module,
 
 
 
-    prefix_img = torch.tensor(data_loader.dataset.tokenizer.encode("Image: ", bos=False, eos=False), dtype=torch.int64)
-    prefix_nonimg = torch.tensor(data_loader.dataset.tokenizer.encode("Image: N/A", bos=False, eos=False), dtype=torch.int64)
+    prefix_audio = torch.tensor(data_loader.dataset.tokenizer.encode("Audio: ", bos=False, eos=False), dtype=torch.int64)
+    prefix_video = torch.tensor(data_loader.dataset.tokenizer.encode("Video: ", bos=False, eos=False), dtype=torch.int64)
+    # prefix_nonimg = torch.tensor(data_loader.dataset.tokenizer.encode("Image: N/A", bos=False, eos=False), dtype=torch.int64)
 
-    for data_iter_step, (examples, labels, example_mask,images,indicators) in enumerate(metric_logger.log_every(data_loader, print_freq, header)):
+    for data_iter_step, (examples, labels, example_mask, videos , audios) in enumerate(metric_logger.log_every(data_loader, print_freq, header)):
         # we use a per iteration (instead of per epoch) lr scheduler
         if data_iter_step % accum_iter == 0:
             lr_sched.adjust_learning_rate(optimizer, data_iter_step / len(data_loader) + epoch, args)
 
-        prefix_img=prefix_img.to(examples.device)
-        prefix_nonimg=prefix_nonimg.to(examples.device)
-        c_loss = model(examples, labels,images=images, prefix_img=prefix_img, prefix_nonimg=prefix_nonimg,img_indicators=indicators)
+        prefix_audio=prefix_audio.to(examples.device)
+        prefix_video=prefix_video.to(examples.device)
+        c_loss = model(examples, labels, videos = videos, prefix_video = prefix_video, audios = audios, prefix_audio =  prefix_audio)
         loss = c_loss
         loss_value = loss.item()
         c_loss_value = c_loss.item()

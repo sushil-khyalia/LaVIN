@@ -15,7 +15,7 @@ import util.misc as misc
 from util.misc import NativeScalerWithGradNormCount as NativeScaler
 from engine import train_one_epoch
 
-from util.datasets import ScienceQADataSet,InstrcutDataSet
+from util.datasets import ScienceQADataSet,InstrcutDataSet,MOSIDataset
 from lavin.mm_adaptation import LaVIN
 import random
 import bitsandbytes as bnb
@@ -154,10 +154,11 @@ def main(args):
     cudnn.deterministic = True
 
 
-    if args.do_pretrain:
-        dataset_train = InstrcutDataSet(args, 'all', args.llama_model_path, args.max_seq_len)
-    else:
-        dataset_train = ScienceQADataSet(args, 'train', args.llama_model_path, args.max_seq_len)
+    # if args.do_pretrain:
+    #     dataset_train = InstrcutDataSet(args, 'all', args.llama_model_path, args.max_seq_len)
+    # else:
+    #     dataset_train = ScienceQADataSet(args, 'train', args.llama_model_path, args.max_seq_len)
+    dataset_train = MOSIDataset(args, 'train', args.llama_model_path, args.max_seq_len)
 
     print(dataset_train)
 
