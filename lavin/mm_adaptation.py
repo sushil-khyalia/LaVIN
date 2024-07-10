@@ -2,7 +2,7 @@
 import torch
 
 import json
-from lavin import ModelArgs, Tokenizer, Transformer
+from lavin import ModelArgs, Tokenizer, Transformer, TransformerForClassification, TransformerForRegression
 from lavin.mm_adapter import set_MMAdapter,set_Clip_Adapter,set_Vivit_Adapter,set_Whisper_Adapter
 
 from pathlib import Path
@@ -136,3 +136,124 @@ def LaVIN(args):
     print('  + Number of trainable params: %.2fM' % (total / 1e6))
     return llama
 
+def LaVINForClassification(args):
+
+    llama_model_path =args.llama_model_path
+    model_name = args.llm_model
+
+    checkpoint, tokenizer, params = _load_and_redistribute_checkpoint(llama_model_path, model_name)
+
+
+    model_args: ModelArgs = ModelArgs(
+        max_seq_len=args.max_seq_len, max_batch_size=32,hidden_proj=args.hidden_proj,drop_path=args.drop_path, **params
+    )
+
+    model_args.vocab_size = tokenizer.n_words
+
+    if args.cpu_load:
+        #cpu load is slow, but is freindly for GPU with limited memory.
+        torch.set_default_tensor_type(torch.HalfTensor)
+    else:
+        torch.set_default_tensor_type(torch.cuda.HalfTensor)
+
+    llama = TransformerForClassification(model_args, projection_size=args.projection_size, num_classes=args.num_classes)
+
+    #delete language encoder
+    # del llama.backbone.transformer
+    del llama.transformer.output
+    torch.set_default_tensor_type(torch.FloatTensor)
+
+    if args.bits in ['4bit','8bit']:
+        from util.quantization import quant_model_bnb
+        llama.layers=quant_model_bnb(llama.layers,quant_bit=args.bits)
+
+    llama.transformer.load_state_dict(checkpoint, strict=False)
+    if args.use_vicuna:
+        apply_model_delta_online(llama,'../data/weights/vicuna_'+args.llm_model)
+
+
+    if   args.adapter_type=='block' or  args.adapter_type=='attn':
+        set_MMAdapter(llama.transformer,args.adapter_type,dim=args.adapter_dim,s=args.adapter_scale,t=args.temperature,gradient_checkpointing=args.gradient_checkpointing)
+        # set_Clip_Adapter(llama.backbone.visual,args.visual_adapter_type,dim=args.adapter_dim,s=args.adapter_scale,t=args.temperature)
+        set_Vivit_Adapter(llama.transformer.video_backbone,args.visual_adapter_type,dim=args.adapter_dim,s=args.adapter_scale,t=args.temperature)
+        set_Whisper_Adapter(llama.transformer.audio_backbone,args.visual_adapter_type,dim=args.adapter_dim,s=args.adapter_scale,t=args.temperature)
+
+
+
+#
+    learnable_keys=['adapter','classification']
+    total=0.
+    trainable_names=[]
+    for name, param in llama.named_parameters():
+        for key in learnable_keys:
+
+            if key in name:
+                param.requires_grad = True
+                param.data = param.data.float()
+                total += param.nelement()
+                trainable_names.append(name)
+            else:
+                param.requires_grad = False
+    print('  + Number of trainable params: %.2fM' % (total / 1e6))
+    return llama
+
+def LaVINForRegression(args):
+
+    llama_model_path =args.llama_model_path
+    model_name = args.llm_model
+
+    checkpoint, tokenizer, params = _load_and_redistribute_checkpoint(llama_model_path, model_name)
+
+
+    model_args: ModelArgs = ModelArgs(
+        max_seq_len=args.max_seq_len, max_batch_size=32,hidden_proj=args.hidden_proj,drop_path=args.drop_path, **params
+    )
+
+    model_args.vocab_size = tokenizer.n_words
+
+    if args.cpu_load:
+        #cpu load is slow, but is freindly for GPU with limited memory.
+        torch.set_default_tensor_type(torch.HalfTensor)
+    else:
+        torch.set_default_tensor_type(torch.cuda.HalfTensor)
+
+    llama = TransformerForRegression(model_args, projection_size=args.projection_size)
+
+    #delete language encoder
+    # del llama.backbone.transformer
+    del llama.transformer.output
+    torch.set_default_tensor_type(torch.FloatTensor)
+
+    if args.bits in ['4bit','8bit']:
+        from util.quantization import quant_model_bnb
+        llama.layers=quant_model_bnb(llama.layers,quant_bit=args.bits)
+
+    llama.transformer.load_state_dict(checkpoint, strict=False)
+    if args.use_vicuna:
+        apply_model_delta_online(llama,'../data/weights/vicuna_'+args.llm_model)
+
+
+    if   args.adapter_type=='block' or  args.adapter_type=='attn':
+        set_MMAdapter(llama.transformer,args.adapter_type,dim=args.adapter_dim,s=args.adapter_scale,t=args.temperature,gradient_checkpointing=args.gradient_checkpointing)
+        # set_Clip_Adapter(llama.backbone.visual,args.visual_adapter_type,dim=args.adapter_dim,s=args.adapter_scale,t=args.temperature)
+        set_Vivit_Adapter(llama.transformer.video_backbone,args.visual_adapter_type,dim=args.adapter_dim,s=args.adapter_scale,t=args.temperature)
+        set_Whisper_Adapter(llama.transformer.audio_backbone,args.visual_adapter_type,dim=args.adapter_dim,s=args.adapter_scale,t=args.temperature)
+
+
+
+#
+    learnable_keys=['adapter', 'regression']
+    total=0.
+    trainable_names=[]
+    for name, param in llama.named_parameters():
+        for key in learnable_keys:
+
+            if key in name:
+                param.requires_grad = True
+                param.data = param.data.float()
+                total += param.nelement()
+                trainable_names.append(name)
+            else:
+                param.requires_grad = False
+    print('  + Number of trainable params: %.2fM' % (total / 1e6))
+    return llama

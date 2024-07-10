@@ -8,7 +8,7 @@ import math
 import torch
 from torch import nn
 import torch.nn.functional as F
-import clip
+import clip,vivit,whisper
 import fairscale.nn.model_parallel.initialize as fs_init
 from fairscale.nn.model_parallel.layers import (
     VocabParallelEmbedding,
@@ -278,11 +278,14 @@ class Transformer(nn.Module):
             self.params.dim // self.params.n_heads, self.params.max_seq_len * 2
         )
 
-        self.backbone = clip.load('ViT-L/14')[0]
+        self.video_backbone = vivit.VivitModel.from_pretrained("google/vivit-b-16x2-kinetics400").float()
+        self.audio_backbone = whisper.WhisperModel.from_pretrained("openai/whisper-large-v3").encoder.float()
 
-        self.adapter_proj = AdapterMLP(1024, params.hidden_proj, params.dim).float()
+        #handcraft define self.backbone.visual.transformer.width
+        self.video_adapter_proj = AdapterMLP(768, params.hidden_proj, params.dim).float()
+        self.audio_adapter_proj = AdapterMLP(1280, params.hidden_proj, params.dim).float()
         self.adapter_modality_embedding=nn.Embedding(2,params.dim).float()
-
+    
     @torch.inference_mode()
     def forward(self, tokens: torch.Tensor, start_pos: int):
         with autocast():

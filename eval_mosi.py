@@ -14,11 +14,18 @@ from fairscale.nn.model_parallel.initialize import initialize_model_parallel
 from lavin.eval_model import ModelArgs, Transformer
 from lavin.tokenizer import Tokenizer
 from lavin.generator import LaVIN_Generator
-from lavin.mm_adapter import set_MMAdapter,set_Clip_Adapter
-from util.base_prompt import build_prompt
+from lavin.mm_adapter import set_MMAdapter,set_Vivit_Adapter, set_Whisper_Adapter
 from dataclasses import dataclass
 import re
 import random
+
+from util.misc import sample_frame_indices, read_video_pyav
+from vivit import VivitImageProcessor
+from whisper import WhisperFeatureExtractor
+
+import av
+import soundfile
+import numpy as np
 
 import warnings
 import pandas as pd
@@ -34,11 +41,7 @@ from util.apply_delta import apply_model_delta_online
 
 warnings.filterwarnings('ignore')
 
-@dataclass
-class PromptArgs:
-    prompt_format='QCM-ALE'
-    use_caption=True
-    options=["A", "B", "C", "D", "E"]
+
 
 def setup_model_parallel() -> Tuple[int, int]:
     local_rank = int(os.environ.get("LOCAL_RANK", -1))
@@ -169,67 +172,6 @@ def get_acc_with_contion(res_pd, key, values):
     acc = "{:.2f}".format(len(correct_pd) / len(total_pd) * 100)
     return acc
 
-
-def get_scores(result_file, data_file):
-    # read result file
-    results = json.load(open(result_file))
-    num = len(results)
-    assert num == 4241
-
-    sqa_data = json.load(open(data_file))
-
-    # construct pandas data
-    sqa_pd = pd.DataFrame(sqa_data).T
-    res_pd = sqa_pd[sqa_pd['split'] == 'test']  # test set
-
-    # update data
-    for index, row in res_pd.iterrows():
-
-        res_pd.loc[index, 'no_context'] = True if (not row['hint'] and not row['image']) else False
-        res_pd.loc[index, 'has_text'] = True if row['hint'] else False
-        res_pd.loc[index, 'has_image'] = True if row['image'] else False
-        res_pd.loc[index, 'has_text_image'] = True if (row['hint'] and row['image']) else False
-
-        label = row['answer']
-        pred = int(results[index])
-        res_pd.loc[index, 'pred'] = pred
-        res_pd.loc[index, 'true_false'] = (label == pred)
-
-    # accuracy scores
-    acc_average = len(res_pd[res_pd['true_false'] == True]) / num * 100
-
-    scores = {
-        'acc_natural':
-        get_acc_with_contion(res_pd, 'subject', 'natural science'),
-        'acc_social':
-        get_acc_with_contion(res_pd, 'subject', 'social science'),
-        'acc_language':
-        get_acc_with_contion(res_pd, 'subject', 'language science'),
-        'acc_has_text':
-        get_acc_with_contion(res_pd, 'has_text', True),
-        'acc_has_image':
-        get_acc_with_contion(res_pd, 'has_image', True),
-        'acc_no_context':
-        get_acc_with_contion(res_pd, 'no_context', True),
-        'acc_grade_1_6':
-        get_acc_with_contion(res_pd, 'grade', ['grade1', 'grade2', 'grade3', 'grade4', 'grade5', 'grade6']),
-        'acc_grade_7_12':
-        get_acc_with_contion(res_pd, 'grade', ['grade7', 'grade8', 'grade9', 'grade10', 'grade11', 'grade12']),
-        'acc_average':
-        "{:.2f}".format(acc_average),
-    }
-
-    return scores
-
-
-def print_scores(scores):
-    latex_output = ""
-    for key, score in scores.items():
-        print(f"{key[4:]}: \t{score}")
-        latex_output += f"& {score} "
-    latex_output += "\\\\"
-    print(latex_output)
-
 def load(
     ckpt_dir: str,
     llm_model:str,
@@ -269,7 +211,6 @@ def load(
 
     model = Transformer(model_args)
     #delete language encoder
-    del model.backbone.transformer
 
     torch.set_default_tensor_type(torch.FloatTensor)
 
@@ -278,7 +219,8 @@ def load(
         model.layers = quant_model_bnb(model.layers, quant_bit='4bit')
 
     set_MMAdapter(model, adapter_type, dim=adapter_dim, s=adapter_scale,t=temperature)
-    set_Clip_Adapter(model.backbone.visual, visual_adapter_type, dim=adapter_dim, s=adapter_scale,t=temperature)
+    set_Vivit_Adapter(model.video_backbone,visual_adapter_type,dim=adapter_dim,s=adapter_scale,t=temperature)
+    set_Whisper_Adapter(model.audio_backbone,visual_adapter_type,dim=adapter_dim,s=adapter_scale,t=temperature)
 
     model.load_state_dict(checkpoint, strict=False)
 
@@ -312,21 +254,16 @@ def main(
     ckpt_dir: str,
     tokenizer_path: str,
     adapter_path: str,
-    data_root:str,
-    caption_file:str,
     max_seq_len: int,
     max_batch_size: int,
     llm_model:str='7B',
     generation_temperature: float = 0.1,
     top_p: float = 0.75,
-    split='val',
-    prompt_format='QCM-ALE',
-    use_caption=False,
-    options=["A", "B", "C", "D", "E"],
+    split='valid',
+    options=["-3", "-2", "-1", "0", "1", "2", "3"],
     adapter_type='repattn',
     adapter_dim=8,
     adapter_scale=1,
-    n_prompt=10,
     hidden_proj=128,
     visual_adapter_type='normal',
     temperature=10.,
@@ -335,10 +272,12 @@ def main(
     cpu_load:bool=False,
 ):
     print(max_batch_size,max_seq_len)
-    print('use caption: ',use_caption)
     local_rank, world_size = setup_model_parallel()
     if local_rank > 0:
         sys.stdout = open(os.devnull, "w")
+
+    image_processor = VivitImageProcessor.from_pretrained("google/vivit-b-16x2-kinetics400")
+    feature_extractor = WhisperFeatureExtractor.from_pretrained("openai/whisper-large-v3")
 
     generator = load(
         ckpt_dir,llm_model, tokenizer_path, adapter_path, local_rank, world_size, max_seq_len, max_batch_size,
@@ -346,56 +285,49 @@ def main(
     temperature,use_vicuna,bits=bits,cpu_load=cpu_load)
 
     print('split: ', split)
-    problems = json.load(open(os.path.join(data_root, 'problems.json')))
-    pid_splits = json.load(open(os.path.join(data_root, 'pid_splits.json')))
-    captions = json.load(open(caption_file))["captions"]
-    image_path = os.path.join(data_root, 'images', split)
-    qids = pid_splits['%s' % (split)]
-    total_items=len(qids)
-    for qid in problems:
-        problems[qid]['caption'] = captions[qid] if qid in captions else ""
+    raw_data = pd.read_csv('/work/skhyalia/dataset_original/mosi_sentiment_%s.csv' % (split))    
+    total_items=len(raw_data)
     print('total_items: ',total_items)
 
 
-    image_transforms=transforms.Compose([transforms.Resize((224, 224), interpolation=Image.BICUBIC),transforms.ToTensor(), transforms.Normalize(IMAGENET_DEFAULT_MEAN, IMAGENET_DEFAULT_STD)])
-
-    prompt_args=PromptArgs()
-    prompt_args.prompt_format = prompt_format
-    prompt_args.use_caption = use_caption
-    prompt_args.options = options
-
-    pattern = re.compile(r'The answer is ([A-Z]).')
+    pattern = re.compile(r'The sentiment is (-?[0-3])')
 
     answers = []
     preds=[]
     for i in range(total_items//max_batch_size+1):
         print('progresses: ',i,' / ', total_items//max_batch_size+1)
-        batch_qids=qids[i*max_batch_size:(i+1)*max_batch_size]
-        if len(batch_qids)==0:
+        data_points = raw_data.iloc[i*max_batch_size:(i+1)*max_batch_size]
+        if len(data_points)==0:
             break
-        indicators = []
-        prompts=[]
-        images = []
-        for qid in batch_qids:
-            prompt,_ = build_prompt(problems, qid, prompt_args)
 
-            answer=problems[qid]["answer"]
-            if problems[qid]['image'] is not None:
-                image = Image.open(os.path.join(image_path, qid, 'image.png')).convert('RGB')
-                image = image_transforms(image)
-                indicator = 1
-            else:
-                image = torch.Tensor(torch.zeros(3, 224, 224).float())
-                indicator = 0
-            prompts.append(prompt)
-            answers.append(answer)
-            images.append(image.unsqueeze(0))
-            indicators.append(indicator)
-        images=torch.cat(images,0)
+        prompts=[]
+        videos = []
+        audios = []
+        for _, data_point in data_points.iterrows():
+            video_path = data_point['video']
+            container = av.open(video_path)
+            indices = sample_frame_indices(clip_len=32, frame_sample_rate=4, seg_len=container.streams.video[0].frames)
+            video = read_video_pyav(container=container, indices=indices)
+            video = image_processor(list(video), return_tensors="pt").pixel_values.squeeze(0)
+            audio_path = data_point['audio']
+            waveform, sampling_rate = soundfile.read(audio_path)
+            audio = feature_extractor(waveform, sampling_rate=sampling_rate, return_tensors="pt").input_features.squeeze(0)
+            prompt_text = f"Text: {data_point['sentence']}"
+            prompt_text+="Response: "
+            prompt_text='\n'+prompt_text
+            prompt_text = prompt_text.replace("  ", " ").strip()
+
+            label = str(int(np.round(data_point['y'])))
+            prompts.append(prompt_text)
+            answers.append(label)
+            videos.append(video.unsqueeze(0))
+            audios.append(audio.unsqueeze(0))
+        videos=torch.cat(videos,0)
+        audios=torch.cat(audios,0)
 
 
         results = generator.generate(
-            prompts,images=images,indicators=indicators, max_gen_len=64, temperature=generation_temperature, top_p=top_p,n_feats=n_prompt
+            prompts,videos=videos,audios=audios, max_gen_len=64, temperature=generation_temperature, top_p=top_p
         )
 
         for result in results:
@@ -411,24 +343,17 @@ def main(
     #evaluations
     results={}
     correct=0
+    choices = ["-3", "-2", "-1", "0", "1", "2", "3"]
     for i, prediction in enumerate(preds):
-        pred_idx = get_pred_idx(prediction, problems[qids[i]]["choices"],
-                                prompt_args.options)  # 0, 1, ..., 4
-        if pred_idx == answers[i]:
+        pred_idx = get_pred_idx(prediction, choices, choices)  # 0, 1, ..., 4
+        if pred_idx == choices.index(answers[i]):
             correct += 1
-        results[qids[i]] = pred_idx
+        results[f"{raw_data.iloc[i]['meta_id']}_{raw_data.iloc[i]['meta_clip']}"] = prediction
     acc = correct / len(results) * 100
     print('overall accuracy: ', acc)
 
     with open('./preds.json', 'w') as f:
         json.dump(results,f)
-
-    scores=get_scores('./preds.json',os.path.join(data_root, 'problems.json'))
-    print(scores)
-    import time
-    with open(str(time.time())+'.txt','w') as f:
-        f.write(str(scores))
-
 
 if __name__ == "__main__":
     fire.Fire(main)

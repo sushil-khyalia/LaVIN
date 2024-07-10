@@ -685,7 +685,7 @@ class Transformer(nn.Module):
     #     c_loss = self.criterion(output, labels)
     #     return c_loss
     
-    def forward(self, examples, labels, videos = None, prefix_video = None, audios = None, prefix_audio = None):
+    def forward(self, examples, labels, videos = None, prefix_video = None, audios = None, prefix_audio = None, return_hidden=False):
 
         # print(images.dtype)
         examples = examples.cuda()
@@ -733,6 +733,8 @@ class Transformer(nn.Module):
             h = layer(h, start_pos, freqs_cis, mask)
 
         h = self.norm(h)
+        if return_hidden:
+            return h
         output = self.output(h)
         output = output[:, :-1, :].reshape(-1, self.vocab_size)
         labels = labels[:, 1:].flatten()
@@ -740,3 +742,39 @@ class Transformer(nn.Module):
 
         c_loss = self.criterion(output, labels)
         return c_loss
+    
+class TransformerForClassification(nn.Module):
+    def __init__(self, params: ModelArgs, projection_size, num_classes):
+        super().__init__()
+        self.transformer = Transformer(params)
+
+        self.projection_classification = nn.Linear(params.dim, projection_size)
+        self.output_classification = nn.Linear(projection_size, num_classes)
+
+        self.criterion = nn.CrossEntropyLoss()
+
+    def forward(self, examples, labels, classes, videos = None, prefix_video = None, audios = None, prefix_audio = None):
+        classes = classes.cuda()
+        h = self.transformer(examples, labels, videos=videos, prefix_video=prefix_video, audios=audios, prefix_audio=prefix_audio, return_hidden=True)
+        proj = self.projection_classification(h[:,1,:].float())
+        output = self.output_classification(proj)
+        loss = self.criterion(output, classes)
+        return loss
+    
+class TransformerForRegression(nn.Module):
+    def __init__(self, params: ModelArgs, projection_size):
+        super().__init__()
+        self.transformer = Transformer(params)
+
+        self.projection_regression = nn.Linear(params.dim, projection_size)
+        self.output_regression = nn.Linear(projection_size, 1)
+
+        self.criterion = nn.MSELoss()
+
+    def forward(self, examples, labels, values, videos = None, prefix_video = None, audios = None, prefix_audio = None):
+        values = values.cuda()
+        h = self.transformer(examples, labels, videos=videos, prefix_video=prefix_video, audios=audios, prefix_audio=prefix_audio, return_hidden=True)
+        proj = self.projection_regression(h[:,1,:].float())
+        output = self.output_regression(proj).squeeze(1)
+        loss = self.criterion(output, values)
+        return loss

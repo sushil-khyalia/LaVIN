@@ -64,7 +64,7 @@ def validate_preprocess_arguments(
     crop_size: Optional[Dict[str, int]] = None,
     do_resize: Optional[bool] = None,
     size: Optional[Dict[str, int]] = None,
-    resample: Optional["PILImageResampling"] = None,
+    resample: Optional["PILImageResampling"] = None, # type: ignore
 ):
     """
     Checks validity of typically used arguments in an `ImageProcessor` `preprocess` method.
@@ -168,7 +168,7 @@ class VivitImageProcessor(BaseImageProcessor):
         self,
         do_resize: bool = True,
         size: Dict[str, int] = None,
-        resample: PILImageResampling = PILImageResampling.BILINEAR,
+        resample: PILImageResampling = PILImageResampling.BILINEAR, # type: ignore
         do_center_crop: bool = True,
         crop_size: Dict[str, int] = None,
         do_rescale: bool = True,
@@ -218,7 +218,7 @@ class VivitImageProcessor(BaseImageProcessor):
         self,
         image: np.ndarray,
         size: Dict[str, int],
-        resample: PILImageResampling = PILImageResampling.BILINEAR,
+        resample: PILImageResampling = PILImageResampling.BILINEAR, # type: ignore
         data_format: Optional[Union[str, ChannelDimension]] = None,
         input_data_format: Optional[Union[str, ChannelDimension]] = None,
         **kwargs,
@@ -304,7 +304,7 @@ class VivitImageProcessor(BaseImageProcessor):
         image: ImageInput,
         do_resize: bool = None,
         size: Dict[str, int] = None,
-        resample: PILImageResampling = None,
+        resample: PILImageResampling = None, # type: ignore
         do_center_crop: bool = None,
         crop_size: Dict[str, int] = None,
         do_rescale: bool = None,
@@ -366,7 +366,7 @@ class VivitImageProcessor(BaseImageProcessor):
         videos: ImageInput,
         do_resize: bool = None,
         size: Dict[str, int] = None,
-        resample: PILImageResampling = None,
+        resample: PILImageResampling = None, # type: ignore
         do_center_crop: bool = None,
         crop_size: Dict[str, int] = None,
         do_rescale: bool = None,
