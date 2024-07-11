@@ -110,7 +110,7 @@ class MOSIDatasetForClassification(Data.Dataset):
         example=prompt + ' ' + answer
         # print(prompt)
         prompt=torch.tensor(self.tokenizer.encode(prompt, bos=True, eos=False), dtype=torch.int64)
-        example = torch.tensor(self.tokenizer.encode(example, bos=True, eos=True), dtype=torch.int64)
+        example = torch.tensor(self.tokenizer.encode(example, bos=True, eos=False), dtype=torch.int64)
         padding = self.max_words - example.shape[0]
         if padding > 0:
             example = torch.cat((example, torch.zeros(padding, dtype=torch.int64) - 1))
@@ -140,8 +140,7 @@ class MOSIDatasetForClassification(Data.Dataset):
         prompt_text+="Response: "
         prompt_text='\n'+prompt_text
         prompt_text = prompt_text.replace("  ", " ").strip()
-        label = str(np.round(data_point['y']))
-        prompt_answer = f"The sentiment is {label}"
+        prompt_answer = f"The sentiment is "
         example, labels, example_mask, label_mask=self.tokenize(prompt_text,prompt_answer)
 
         return example, labels, torch.tensor(np.round(data_point['y'])+3), example_mask, video, audio
@@ -171,7 +170,7 @@ class MOSIDatasetForRegression(Data.Dataset):
         example=prompt + ' ' + answer
         # print(prompt)
         prompt=torch.tensor(self.tokenizer.encode(prompt, bos=True, eos=False), dtype=torch.int64)
-        example = torch.tensor(self.tokenizer.encode(example, bos=True, eos=True), dtype=torch.int64)
+        example = torch.tensor(self.tokenizer.encode(example, bos=True, eos=False), dtype=torch.int64)
         padding = self.max_words - example.shape[0]
         if padding > 0:
             example = torch.cat((example, torch.zeros(padding, dtype=torch.int64) - 1))
@@ -201,8 +200,7 @@ class MOSIDatasetForRegression(Data.Dataset):
         prompt_text+="Response: "
         prompt_text='\n'+prompt_text
         prompt_text = prompt_text.replace("  ", " ").strip()
-        label = str(np.round(data_point['y']))
-        prompt_answer = f"The sentiment is {label}"
+        prompt_answer = f"The sentiment is "
         example, labels, example_mask, label_mask=self.tokenize(prompt_text,prompt_answer)
 
         return example, labels, torch.tensor(data_point['y']), example_mask, video, audio

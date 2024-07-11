@@ -41,9 +41,7 @@ def get_args_parser():
 
     parser.add_argument('--cpu_load',  action='store_true',   help='load the model on cpu and avoid OOM on gpu')
 
-    parser.add_argument('--projection_size', default=128, type=int, help='projection size before the final layer')
-
-    parser.add_argument('--num_classes', default=7, type=int, help='projection size before the final layer')
+    parser.add_argument('--num_classes', default=7, type=int, help='number of classes for classification')
 
     #block is not supported now.
     parser.add_argument('--adapter_type', type=str, default='attn', metavar='LENGTH',choices=['block','attn'],
@@ -280,13 +278,6 @@ def main(args):
                 log_writer.flush()
             with open(os.path.join(args.output_dir, "log.txt"), mode="a", encoding="utf-8") as f:
                 f.write(json.dumps(log_stats) + "\n")
-        
-        val_stats = val_one_epoch(
-            model, data_loader_valid,
-            optimizer, device, epoch, loss_scaler,
-            log_writer=log_writer,
-            args=args
-        )
 
     total_time = time.time() - start_time
     total_time_str = str(datetime.timedelta(seconds=int(total_time)))

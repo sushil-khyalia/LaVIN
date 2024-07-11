@@ -734,7 +734,12 @@ class Transformer(nn.Module):
 
         h = self.norm(h)
         if return_hidden:
-            return h
+            non_zero_mask = labels != 0
+            max_indices = torch.zeros(labels.size(0), dtype=torch.long) - 1
+            for i in range(labels.size(0)):
+                if non_zero_mask[i].any():
+                    max_indices[i] = torch.max(torch.nonzero(non_zero_mask[i])).item()
+            return h, max_indices
         output = self.output(h)
         output = output[:, :-1, :].reshape(-1, self.vocab_size)
         labels = labels[:, 1:].flatten()
@@ -744,37 +749,35 @@ class Transformer(nn.Module):
         return c_loss
     
 class TransformerForClassification(nn.Module):
-    def __init__(self, params: ModelArgs, projection_size, num_classes):
+    def __init__(self, params: ModelArgs, num_classes):
         super().__init__()
         self.transformer = Transformer(params)
 
-        self.projection_classification = nn.Linear(params.dim, projection_size)
-        self.output_classification = nn.Linear(projection_size, num_classes)
-
+        self.output_classification = nn.Linear(params.dim, num_classes)
+        nn.init.xavier_uniform_( self.output_classification.weight)
+        nn.init.zeros_(self.output_classification.bias)
         self.criterion = nn.CrossEntropyLoss()
 
     def forward(self, examples, labels, classes, videos = None, prefix_video = None, audios = None, prefix_audio = None):
         classes = classes.cuda()
-        h = self.transformer(examples, labels, videos=videos, prefix_video=prefix_video, audios=audios, prefix_audio=prefix_audio, return_hidden=True)
-        proj = self.projection_classification(h[:,1,:].float())
-        output = self.output_classification(proj)
+        h, max_indices = self.transformer(examples, labels, videos=videos, prefix_video=prefix_video, audios=audios, prefix_audio=prefix_audio, return_hidden=True)
+        output = self.output_classification(h[torch.arange(h.shape[0]), max_indices].float())
         loss = self.criterion(output, classes)
         return loss
     
 class TransformerForRegression(nn.Module):
-    def __init__(self, params: ModelArgs, projection_size):
+    def __init__(self, params: ModelArgs):
         super().__init__()
         self.transformer = Transformer(params)
 
-        self.projection_regression = nn.Linear(params.dim, projection_size)
-        self.output_regression = nn.Linear(projection_size, 1)
-
+        self.output_regression = nn.Linear(params.dim, 1)
+        nn.init.xavier_uniform_( self.output_regression.weight)
+        nn.init.zeros_(self.output_regression.bias)
         self.criterion = nn.MSELoss()
 
     def forward(self, examples, labels, values, videos = None, prefix_video = None, audios = None, prefix_audio = None):
         values = values.cuda()
-        h = self.transformer(examples, labels, videos=videos, prefix_video=prefix_video, audios=audios, prefix_audio=prefix_audio, return_hidden=True)
-        proj = self.projection_regression(h[:,1,:].float())
-        output = self.output_regression(proj).squeeze(1)
+        h, max_indices = self.transformer(examples, labels, videos=videos, prefix_video=prefix_video, audios=audios, prefix_audio=prefix_audio, return_hidden=True)
+        output = self.output_regression(h[torch.arange(h.shape[0]), max_indices].float()).squeeze(1)
         loss = self.criterion(output, values)
         return loss

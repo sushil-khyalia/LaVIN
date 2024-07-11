@@ -156,7 +156,7 @@ def LaVINForClassification(args):
     else:
         torch.set_default_tensor_type(torch.cuda.HalfTensor)
 
-    llama = TransformerForClassification(model_args, projection_size=args.projection_size, num_classes=args.num_classes)
+    llama = TransformerForClassification(model_args, num_classes=args.num_classes)
 
     #delete language encoder
     # del llama.backbone.transformer
@@ -217,7 +217,7 @@ def LaVINForRegression(args):
     else:
         torch.set_default_tensor_type(torch.cuda.HalfTensor)
 
-    llama = TransformerForRegression(model_args, projection_size=args.projection_size)
+    llama = TransformerForRegression(model_args)
 
     #delete language encoder
     # del llama.backbone.transformer
