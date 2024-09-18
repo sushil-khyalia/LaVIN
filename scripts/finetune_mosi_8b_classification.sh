@@ -1,4 +1,4 @@
-CUDA_VISIBLE_DEVICES=0 torchrun --nproc_per_node 1 --master_port 11111 train_classification.py \
+CUDA_VISIBLE_DEVICES=0 torchrun --nproc_per_node 1 --master_port 11112 train_classification.py \
    --llm_model 8B\
    --llama_model_path ../data/weights/ \
    --max_seq_len 512 \

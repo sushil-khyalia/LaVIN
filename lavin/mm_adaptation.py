@@ -172,7 +172,7 @@ def LaVINForClassification(args):
         apply_model_delta_online(llama,'../data/weights/vicuna_'+args.llm_model)
 
 
-    if   args.adapter_type=='block' or  args.adapter_type=='attn':
+    if args.adapter_type=='block' or  args.adapter_type=='attn':
         set_MMAdapter(llama.transformer,args.adapter_type,dim=args.adapter_dim,s=args.adapter_scale,t=args.temperature,gradient_checkpointing=args.gradient_checkpointing)
         # set_Clip_Adapter(llama.backbone.visual,args.visual_adapter_type,dim=args.adapter_dim,s=args.adapter_scale,t=args.temperature)
         set_Vivit_Adapter(llama.transformer.video_backbone,args.visual_adapter_type,dim=args.adapter_dim,s=args.adapter_scale,t=args.temperature)
@@ -226,8 +226,8 @@ def LaVINForRegression(args):
 
     if args.bits in ['4bit','8bit']:
         from util.quantization import quant_model_bnb
-        llama.layers=quant_model_bnb(llama.layers,quant_bit=args.bits)
-
+        llama.transformer.layers=quant_model_bnb(llama.transformer.layers,quant_bit=args.bits)
+        
     llama.transformer.load_state_dict(checkpoint, strict=False)
     if args.use_vicuna:
         apply_model_delta_online(llama,'../data/weights/vicuna_'+args.llm_model)
@@ -246,14 +246,16 @@ def LaVINForRegression(args):
     total=0.
     trainable_names=[]
     for name, param in llama.named_parameters():
+        trainable = False
         for key in learnable_keys:
-
             if key in name:
-                param.requires_grad = True
-                param.data = param.data.float()
-                total += param.nelement()
-                trainable_names.append(name)
-            else:
-                param.requires_grad = False
+                trainable = True
+        if trainable:
+            param.requires_grad = True
+            param.data = param.data.float()
+            total += param.nelement()
+            trainable_names.append(name)
+        else:
+            param.requires_grad = False
     print('  + Number of trainable params: %.2fM' % (total / 1e6))
     return llama

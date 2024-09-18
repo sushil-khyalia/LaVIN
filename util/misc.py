@@ -26,9 +26,9 @@ class SmoothedValue(object):
     window or the global series average.
     """
 
-    def __init__(self, window_size=20, fmt=None):
+    def __init__(self, window_size=10, fmt=None):
         if fmt is None:
-            fmt = "{median:.4f} ({global_avg:.4f})"
+            fmt = "{avg:.4f} ({global_avg:.4f})"
         self.deque = deque(maxlen=window_size)
         self.total = 0.0
         self.count = 0
@@ -299,7 +299,7 @@ def save_model(args, epoch, model, model_without_ddp, optimizer, loss_scaler):
     model_without_ddp.eval()
     trainable = {}
     for n, p in model.named_parameters():
-        if 'adapter' in n:
+        if p.requires_grad:
             trainable[n] = p.data
     # if loss_scaler is not None:
     checkpoint_paths = [output_dir / ('checkpoint-%s.pth' % epoch_name)]
@@ -375,3 +375,52 @@ def read_video_pyav(container, indices):
     container.seek(0)
     frames = list(container.decode(video=0))
     return np.stack([frames[idx].to_ndarray(format="rgb24") for idx in indices])
+
+def correlation(
+    y_true: torch.tensor,
+    y_hat: torch.tensor,
+) -> torch.tensor:
+    y_true = y_true.reshape(-1)
+    y_hat = y_hat.reshape(-1)
+    mean_y_true = torch.mean(y_true)
+    mean_y_hat = torch.mean(y_hat)
+    
+    # Calculate covariance
+    cov = torch.mean((y_true - mean_y_true) * (y_hat - mean_y_hat))
+    
+    # Calculate standard deviations
+    std_y_true = torch.std(y_true) + 1e-5
+    std_y_hat = torch.std(y_hat) + 1e-5
+    
+    # Calculate Pearson correlation
+    correlation_coefficient = cov / (std_y_true * std_y_hat)
+    # correlation_matrix = torch.corrcoef(torch.stack([y_true, y_hat]))
+    # correlation_coefficient = correlation_matrix[0, 1]
+    return correlation_coefficient
+
+def correlation_loss(
+    y_true: torch.Tensor,
+    y_hat: torch.Tensor,
+) -> torch.tensor:
+    return torch.tensor(1) - correlation(y_true, y_hat)
+
+def concordance_correlation_coefficient(
+    y_true: torch.Tensor,
+    y_hat: torch.Tensor,
+) -> torch.tensor:
+    """Calculate the concordance correlation coefficient(s)."""
+    mean_y = torch.mean(y_true, dim=0)
+    mean_y_hat = torch.mean(y_hat, dim=0)
+    y_mean = y_true - mean_y
+    y_hat_mean = y_hat - mean_y_hat
+    cov = torch.mean(y_mean * y_hat_mean, dim=0)
+    var = torch.var(y_true, dim=0, unbiased=False) + torch.var(y_hat, dim=0, unbiased=False)
+    mse = (mean_y - mean_y_hat) ** 2
+    ccc = (2 * cov) / (var + mse)
+    return torch.mean(ccc)
+
+def ccc_loss(
+    y_true: torch.Tensor,
+    y_hat: torch.Tensor,
+) -> torch.tensor:
+    return torch.tensor(1) - concordance_correlation_coefficient(y_true, y_hat)

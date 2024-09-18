@@ -85,22 +85,17 @@ def train_one_epoch(model: torch.nn.Module,
     return {k: meter.global_avg for k, meter in metric_logger.meters.items()}
 
 def val_one_epoch(model: torch.nn.Module,
-                    data_loader: Iterable, optimizer: torch.optim.Optimizer,
-                    device: torch.device, epoch: int, loss_scaler,
+                    data_loader: Iterable,
+                    device: torch.device, epoch: int,
                     log_writer=None,
                     args=None):
   
     model.eval()
     metric_logger = misc.MetricLogger(delimiter="  ")
-    metric_logger.add_meter('lr', misc.SmoothedValue(window_size=1, fmt='{value:.6f}'))
-    lr = optimizer.param_groups[0]["lr"]
-    metric_logger.update(lr=lr)
     header = 'Epoch: [{}]'.format(epoch)
     print_freq = 10
 
     accum_iter = args.accum_iter
-
-    optimizer.zero_grad()
 
     if log_writer is not None:
         print('log_dir: {}'.format(log_writer.log_dir))
@@ -113,9 +108,6 @@ def val_one_epoch(model: torch.nn.Module,
 
     for data_iter_step, (examples, labels, classes, example_mask, videos , audios) in enumerate(metric_logger.log_every(data_loader, print_freq, header)):
         # we use a per iteration (instead of per epoch) lr scheduler
-        if data_iter_step % accum_iter == 0:
-            lr_sched.adjust_learning_rate(optimizer, data_iter_step / len(data_loader) + epoch, args)
-
         prefix_audio=prefix_audio.to(examples.device)
         prefix_video=prefix_video.to(examples.device)
         classes = classes.long()
@@ -131,9 +123,6 @@ def val_one_epoch(model: torch.nn.Module,
 
         metric_logger.update(closs=c_loss_value)
 
-        lr = optimizer.param_groups[0]["lr"]
-        metric_logger.update(lr=lr)
-
         loss_value_reduce = misc.all_reduce_mean(loss_value)
         c_loss_value_reduce = misc.all_reduce_mean(c_loss_value)
         if log_writer is not None and (data_iter_step + 1) % accum_iter == 0:
@@ -142,7 +131,6 @@ def val_one_epoch(model: torch.nn.Module,
             """
             epoch_1000x = int((data_iter_step / len(data_loader) + epoch) * 1000)
             log_writer.add_scalar('c_train_loss', c_loss_value_reduce, epoch_1000x)
-            log_writer.add_scalar('lr', lr, epoch_1000x)
 
     # gather the stats from all processes
     metric_logger.synchronize_between_processes()

@@ -79,11 +79,12 @@ class RepAdapter(nn.Module):
         nn.init.zeros_(self.conv_B.bias)
 
     def forward(self, x,weights=None):
+        res = x
         with autocast():
             x=x.transpose(1,2)
             x=self.conv_B(self.dropout(self.conv_A(x)))
             x=x.transpose(1,2).contiguous()
-        return x.float()
+        return (res + x).float()
 
 
 def forward_llama_block(self, x: torch.Tensor, start_pos: int, freqs_cis: torch.Tensor, mask: Optional[torch.Tensor], adapter=None):

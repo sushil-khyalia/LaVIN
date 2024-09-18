@@ -29,6 +29,7 @@ from whisper import WhisperFeatureExtractor
 import av
 import soundfile
 import numpy as np
+import gc
 
 class MOSIDataset(Data.Dataset):
     def __init__(self, args, split, model_path, max_words=512):
@@ -152,7 +153,7 @@ class MOSIDatasetForClassification(Data.Dataset):
         random.shuffle(list)
 
 class MOSIDatasetForRegression(Data.Dataset):
-    def __init__(self, args, split, model_path, max_words=512):
+    def __init__(self, args, path, split, emotion, model_path, max_words=512):
         super(MOSIDatasetForRegression, self).__init__()
         self.args = args
         # --------------------------
@@ -161,7 +162,8 @@ class MOSIDatasetForRegression(Data.Dataset):
         self.tokenizer = Tokenizer(model_path= model_path + '8B/tokenizer.model')
         self.max_words = max_words
         self.split=split
-        self.raw_data = pd.read_csv('/work/skhyalia/dataset_original/mosi_sentiment_%s.csv' % (split))
+        self.emotion = emotion
+        self.raw_data = pd.read_csv(path)
         self.image_processor = VivitImageProcessor.from_pretrained("google/vivit-b-16x2-kinetics400")
         self.feature_extractor = WhisperFeatureExtractor.from_pretrained("openai/whisper-large-v3")
         print(f"number of examples in split {split}: {len(self.raw_data)}\n")
@@ -200,9 +202,9 @@ class MOSIDatasetForRegression(Data.Dataset):
         prompt_text+="Response: "
         prompt_text='\n'+prompt_text
         prompt_text = prompt_text.replace("  ", " ").strip()
-        prompt_answer = f"The sentiment is "
+        prompt_answer = f"The {self.emotion} is "
         example, labels, example_mask, label_mask=self.tokenize(prompt_text,prompt_answer)
-
+        gc.collect()
         return example, labels, torch.tensor(data_point['y']), example_mask, video, audio
 
     def __len__(self):

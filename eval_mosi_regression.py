@@ -13,12 +13,12 @@ import timm.optim.optim_factory as optim_factory
 
 import util.misc as misc
 from util.misc import NativeScalerWithGradNormCount as NativeScaler
-from engine_regression import train_one_epoch, val_one_epoch
 
 from util.datasets import ScienceQADataSet,InstrcutDataSet,MOSIDatasetForRegression
 from lavin.mm_adaptation import LaVINForRegression
 import random
 import bitsandbytes as bnb
+from util.misc import correlation, concordance_correlation_coefficient
 
 def get_args_parser():
     parser = argparse.ArgumentParser('MAE pre-training', add_help=False)
@@ -158,142 +158,63 @@ def main(args):
     #     dataset_train = InstrcutDataSet(args, 'all', args.llama_model_path, args.max_seq_len)
     # else:
     #     dataset_train = ScienceQADataSet(args, 'train', args.llama_model_path, args.max_seq_len)
-    dataset_train = MOSIDatasetForRegression(args, '/work/skhyalia/dataset_original/iemocap_valence_train.csv', 'train', 'valence', args.llama_model_path, args.max_seq_len)
-    dataset_valid = MOSIDatasetForRegression(args, '/work/skhyalia/dataset_original/iemocap_valence_valid.csv', 'valid', 'valence', args.llama_model_path, args.max_seq_len)
-
-    print(dataset_train)
-
-
+    dataset_test = MOSIDatasetForRegression(args,'/work/skhyalia/dataset_original/iemocap_valence_test.csv', 'test', 'valence', args.llama_model_path, args.max_seq_len)
+    g = torch.Generator()
     num_tasks = misc.get_world_size()
     global_rank = misc.get_rank()
     sampler_train = torch.utils.data.DistributedSampler(
-        dataset_train, num_replicas=num_tasks, rank=global_rank, shuffle=True
+        dataset_test, num_replicas=num_tasks, rank=global_rank, shuffle=False
     )
-    sampler_valid = torch.utils.data.DistributedSampler(
-        dataset_valid, num_replicas=num_tasks, rank=global_rank, shuffle=False
-    )
-
-    print("Sampler_train = %s" % str(sampler_train))
-
-    if global_rank == 0 and args.log_dir is not None:
-        os.makedirs(args.log_dir, exist_ok=True)
-        log_writer = SummaryWriter(log_dir=args.log_dir)
-    else:
-        log_writer = None
-
-    data_loader_train = torch.utils.data.DataLoader(
-        dataset_train, sampler=sampler_train,
+    print(dataset_test)
+    data_loader_test = torch.utils.data.DataLoader(
+        dataset_test, sampler=sampler_train,
         batch_size=args.batch_size,
-        num_workers=args.num_workers,
-        pin_memory=args.pin_mem,
-        drop_last=True,
-        generator=g,
-        persistent_workers=True
-    )
-
-    data_loader_valid = torch.utils.data.DataLoader(
-        dataset_valid, sampler=sampler_valid,
-        batch_size=32,
         num_workers=args.num_workers,
         pin_memory=args.pin_mem,
         drop_last=False,
         generator=g,
-        persistent_workers=True
     )
-
-
-
-    
     # define the model
     model = LaVINForRegression(args)
-
-
-    model.to(device)
-
-    #for debug.   print the data type.
-    for name, param in model.named_parameters():
-        if param.requires_grad:
-            print(name,param.dtype)
-
     model_without_ddp = model
 
-    #for debug. print the model.
-    # print("Model = %s" % str(model_without_ddp))
-
-    eff_batch_size = args.batch_size * args.accum_iter * misc.get_world_size()
+    # if args.distributed:
+    #     print(args.gpu)
+    #     model.to(torch.device('cuda'))
+    #     model = torch.nn.parallel.DistributedDataParallel(model, device_ids=[args.gpu],find_unused_parameters=True)
+    #     model_without_ddp = model.module
     
-    if args.lr is None:  # only base_lr is specified
-        args.lr = args.blr * eff_batch_size / 256
+    adapter_checkpoint = torch.load(args.resume, map_location="cpu")
+    state_dict={}
+    for key in adapter_checkpoint['model']:
+        state_dict[key.replace('module.','')]=adapter_checkpoint['model'][key]
 
-    print("base lr: %.2e" % (args.lr * 256 / eff_batch_size))
-    print("actual lr: %.2e" % args.lr)
+    model.load_state_dict(state_dict, strict=False)
+    model.to(torch.device('cuda'))
 
-    print("accumulate grad iterations: %d" % args.accum_iter)
-    print("effective batch size: %d" % eff_batch_size)
-
-    if args.distributed:
-        print(args.gpu)
-        model = torch.nn.parallel.DistributedDataParallel(model, device_ids=[args.gpu],find_unused_parameters=True)
-        model_without_ddp = model.module
-    
-    # following timm: set wd as 0 for bias and norm layers
-    param_groups = optim_factory.param_groups_weight_decay(model_without_ddp, args.weight_decay)
-
-    #following qlora: apply paged optimizer
-    optimizer = bnb.optim.AdamW32bit(param_groups, lr=args.lr, betas=(0.9, 0.95),is_paged=True) #torch.optim.AdamW(param_groups, lr=args.lr, betas=(0.9, 0.95))
-    print(optimizer)
-
-    #mixed precision scaler
-    loss_scaler = NativeScaler()
-
-    misc.load_model(args=args, model_without_ddp=model_without_ddp, optimizer=optimizer, loss_scaler=loss_scaler)
-
-    print(f"Start training for {args.epochs} epochs")
-    start_time = time.time()
-    best_val = float('inf')
-    for epoch in range(args.start_epoch, args.epochs):
-
-        if args.distributed:
-            data_loader_train.sampler.set_epoch(epoch)
-            data_loader_valid.sampler.set_epoch(epoch)
-
-        train_stats = train_one_epoch(
-            model, data_loader_train,
-            optimizer, device, epoch, loss_scaler,
-            log_writer=log_writer,
-            args=args
-        )
-
-        log_stats = {**{f'train_{k}': v for k, v in train_stats.items()},
-                        'epoch': epoch,}
-
-
-        if args.output_dir and misc.is_main_process():
-            if log_writer is not None:
-                log_writer.flush()
-            with open(os.path.join(args.output_dir, "log.txt"), mode="a", encoding="utf-8") as f:
-                f.write(json.dumps(log_stats) + "\n")
-
-        with torch.no_grad():
-            val_stats = val_one_epoch(
-                model, data_loader_valid,
-                device, epoch,
-                log_writer=log_writer,
-                args=args
-            )
-            if val_stats['closs'] < best_val:
-                best_val = val_stats['closs']
-                if args.output_dir:
-                    misc.save_model(
-                        args=args, model=model, model_without_ddp=model_without_ddp, optimizer=optimizer,
-                        loss_scaler=loss_scaler, epoch=epoch)
-
-
+    model.eval()
+    with torch.no_grad():
+        start_time = time.time()
+        total_items=len(dataset_test)
+        print('total_items: ',total_items)
+        answers = []
+        preds=[]
+        prefix_audio = torch.tensor(dataset_test.tokenizer.encode("Audio: ", bos=False, eos=False), dtype=torch.int64)
+        prefix_video = torch.tensor(dataset_test.tokenizer.encode("Video: ", bos=False, eos=False), dtype=torch.int64)
+        for data_iter_step, (examples, labels, values, example_mask, videos , audios) in enumerate(data_loader_test):
+            print("Progress: ",data_iter_step,"/",len(data_loader_test))
+            pred = model.predict(examples, labels, values, videos = videos, prefix_video = prefix_video, audios = audios, prefix_audio =  prefix_audio)
+            preds.append(pred)
+            answers.append(values)
         
-    total_time = time.time() - start_time
-    total_time_str = str(datetime.timedelta(seconds=int(total_time)))
-    print('Training time {}'.format(total_time_str))
-
+        preds = torch.cat(preds, 0)
+        answers = torch.cat(answers, 0).cuda()
+        corr = concordance_correlation_coefficient(preds, answers)
+        mae_loss = torch.nn.L1Loss()(preds, answers)
+        print("Correlation: ",corr.item())
+        print("MAE: ", mae_loss.item())
+        total_time = time.time() - start_time
+        total_time_str = str(datetime.timedelta(seconds=int(total_time)))
 
 if __name__ == '__main__':
 

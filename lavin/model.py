@@ -24,6 +24,8 @@ import clip
 import vivit
 import whisper
 from  torch.cuda.amp import autocast
+
+from util.misc import correlation_loss, ccc_loss
 # @dataclass
 # class ModelArgs:
 #     dim: int = 512
@@ -39,6 +41,23 @@ from  torch.cuda.amp import autocast
 #     drop_path: float=0.
 
 
+# @dataclass
+# class ModelArgs:
+#     dim: int = 4096
+#     n_layers: int = 32
+#     n_heads: int = 32
+#     n_kv_heads: Optional[int] = None
+#     vocab_size: int = -1
+#     multiple_of: int = 256  # make SwiGLU hidden layer size multiple of large power of 2
+#     ffn_dim_multiplier: Optional[float] = None
+#     norm_eps: float = 1e-5
+#     rope_theta: float = 500000
+#     hidden_proj: int=128
+
+#     max_batch_size: int = 32
+#     max_seq_len: int = 2048
+#     drop_path: float=0.
+
 @dataclass
 class ModelArgs:
     dim: int = 4096
@@ -50,11 +69,23 @@ class ModelArgs:
     ffn_dim_multiplier: Optional[float] = None
     norm_eps: float = 1e-5
     rope_theta: float = 500000
-    hidden_proj: int=128
+    use_scaled_rope: bool = False
 
     max_batch_size: int = 32
     max_seq_len: int = 2048
     drop_path: float=0.
+    hidden_proj: int=128
+
+    def __init__(self, **kwargs):
+        for k, v in kwargs.items():
+            if hasattr(self, k):
+                setattr(self, k, v)
+
+        if self.n_kv_heads is None:
+            self.n_kv_heads = self.n_heads
+        assert self.n_kv_heads <= self.n_heads
+        assert self.n_heads % self.n_kv_heads == 0
+        assert self.dim % self.n_heads == 0
 
 class RMSNorm(torch.nn.Module):
     def __init__(self, dim: int, eps: float = 1e-6):
@@ -70,10 +101,39 @@ class RMSNorm(torch.nn.Module):
         return output * self.weight
 
 
-def precompute_freqs_cis(dim: int, end: int, theta: float = 10000.0):
+def apply_scaling(freqs: torch.Tensor):
+    # Values obtained from grid search
+    scale_factor = 8
+    low_freq_factor = 1
+    high_freq_factor = 4
+    old_context_len = 8192  # original llama3 length
+
+    low_freq_wavelen = old_context_len / low_freq_factor
+    high_freq_wavelen = old_context_len / high_freq_factor
+    new_freqs = []
+    for freq in freqs:
+        wavelen = 2 * math.pi / freq
+        if wavelen < high_freq_wavelen:
+            new_freqs.append(freq)
+        elif wavelen > low_freq_wavelen:
+            new_freqs.append(freq / scale_factor)
+        else:
+            assert low_freq_wavelen != high_freq_wavelen
+            smooth = (old_context_len / wavelen - low_freq_factor) / (
+                high_freq_factor - low_freq_factor
+            )
+            new_freqs.append((1 - smooth) * freq / scale_factor + smooth * freq)
+    return torch.tensor(new_freqs, dtype=freqs.dtype, device=freqs.device)
+
+
+def precompute_freqs_cis(
+    dim: int, end: int, theta: float = 10000.0, use_scaled: bool = False
+):
     freqs = 1.0 / (theta ** (torch.arange(0, dim, 2)[: (dim // 2)].float() / dim))
-    t = torch.arange(end, device=freqs.device)  # type: ignore
-    freqs = torch.outer(t, freqs).float()  # type: ignore
+    t = torch.arange(end, device=freqs.device, dtype=torch.float32)
+    if use_scaled:
+        freqs = apply_scaling(freqs)
+    freqs = torch.outer(t, freqs)
     freqs_cis = torch.polar(torch.ones_like(freqs), freqs)  # complex64
     return freqs_cis
 
@@ -574,6 +634,7 @@ class Transformer(nn.Module):
             params.dim // params.n_heads,
             params.max_seq_len * 2,
             params.rope_theta,
+            params.use_scaled_rope,
         )
 
         # self.backbone = clip.load('ViT-L/14')[0]
@@ -756,12 +817,14 @@ class TransformerForClassification(nn.Module):
         self.output_classification = nn.Linear(params.dim, num_classes)
         nn.init.xavier_uniform_( self.output_classification.weight)
         nn.init.zeros_(self.output_classification.bias)
+        self.dropout = nn.Dropout(p=0.5)
         self.criterion = nn.CrossEntropyLoss()
 
     def forward(self, examples, labels, classes, videos = None, prefix_video = None, audios = None, prefix_audio = None):
         classes = classes.cuda()
         h, max_indices = self.transformer(examples, labels, videos=videos, prefix_video=prefix_video, audios=audios, prefix_audio=prefix_audio, return_hidden=True)
-        output = self.output_classification(h[torch.arange(h.shape[0]), max_indices].float())
+        output = self.output_classification(self.droupout(h[torch.arange(h.shape[0]), max_indices].float()))
+        output = self.dropout(output)
         loss = self.criterion(output, classes)
         return loss
     
@@ -769,15 +832,26 @@ class TransformerForRegression(nn.Module):
     def __init__(self, params: ModelArgs):
         super().__init__()
         self.transformer = Transformer(params)
-
-        self.output_regression = nn.Linear(params.dim, 1)
+        # self.projection_regression = nn.Linear(params.dim, 256)
+        self.output_regression = nn.Linear(4096, 1)
+        # nn.init.xavier_uniform_(self.projection_regression.weight)
+        # nn.init.zeros_(self.projection_regression.bias)
         nn.init.xavier_uniform_( self.output_regression.weight)
         nn.init.zeros_(self.output_regression.bias)
-        self.criterion = nn.MSELoss()
+        self.dropout = nn.Dropout(p=0.1)
+        self.l1_loss = nn.L1Loss()
+        self.corr_loss = ccc_loss
 
     def forward(self, examples, labels, values, videos = None, prefix_video = None, audios = None, prefix_audio = None):
         values = values.cuda()
         h, max_indices = self.transformer(examples, labels, videos=videos, prefix_video=prefix_video, audios=audios, prefix_audio=prefix_audio, return_hidden=True)
-        output = self.output_regression(h[torch.arange(h.shape[0]), max_indices].float()).squeeze(1)
-        loss = self.criterion(output, values)
-        return loss
+        output = self.output_regression(self.dropout(h[torch.arange(h.shape[0]), max_indices].float())).squeeze(1)
+        l1_loss = self.l1_loss(output, values)
+        corr_loss = self.corr_loss(output, values)
+        return l1_loss, corr_loss
+    
+    def predict(self, examples, labels, values, videos = None, prefix_video = None, audios = None, prefix_audio = None):
+        values = values.cuda()
+        h, max_indices = self.transformer(examples, labels, videos=videos, prefix_video=prefix_video, audios=audios, prefix_audio=prefix_audio, return_hidden=True)
+        output = self.output_regression(self.dropout(h[torch.arange(h.shape[0]), max_indices].float())).squeeze(1)
+        return output

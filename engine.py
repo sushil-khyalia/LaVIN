@@ -51,6 +51,7 @@ def train_one_epoch(model: torch.nn.Module,
 
         if torch.isnan(loss):
             print("NaN loss encountered. Skipping this batch.")
+            torch.cuda.synchronize()
             continue
 
         loss = loss/accum_iter
