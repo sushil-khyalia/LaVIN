@@ -8,6 +8,9 @@ from pathlib import Path
 
 import torch
 import torch.backends.cudnn as cudnn
+from torch.distributed.fsdp import FullyShardedDataParallel as FSDP
+# from torch.distributed.fsdp.wrap import transformer_auto_wrap_policy
+# from torch.distributed.fsdp.wrap import size_based_auto_wrap_policy
 from torch.utils.tensorboard import SummaryWriter
 import timm.optim.optim_factory as optim_factory
 
@@ -109,7 +112,7 @@ def get_args_parser():
     # distributed training parameters
     parser.add_argument('--world_size', default=1, type=int,
                         help='number of distributed processes')
-    parser.add_argument('--local_rank', default=-1, type=int)
+    parser.add_argument('--local_rank', default=1, type=int)
     parser.add_argument('--dist_on_itp', action='store_true')
     parser.add_argument('--dist_url', default='env://',
                         help='url used to set up distributed training')
@@ -134,7 +137,6 @@ def get_args_parser():
 
 
 def main(args):
-
     misc.init_distributed_mode(args)
 
     print('job dir: {}'.format(os.path.dirname(os.path.realpath(__file__))))
@@ -158,8 +160,8 @@ def main(args):
     #     dataset_train = InstrcutDataSet(args, 'all', args.llama_model_path, args.max_seq_len)
     # else:
     #     dataset_train = ScienceQADataSet(args, 'train', args.llama_model_path, args.max_seq_len)
-    dataset_train = MOSIDatasetForRegression(args, '/work/skhyalia/dataset_original/iemocap_valence_train.csv', 'train', 'valence', args.llama_model_path, args.max_seq_len)
-    dataset_valid = MOSIDatasetForRegression(args, '/work/skhyalia/dataset_original/iemocap_valence_valid.csv', 'valid', 'valence', args.llama_model_path, args.max_seq_len)
+    dataset_train = MOSIDatasetForRegression(args, '/ocean/projects/cis240055p/skhyalia/dataset_original/iemocap_valence_train.csv', 'train', 'valence', args.llama_model_path, args.max_seq_len)
+    dataset_valid = MOSIDatasetForRegression(args, '/ocean/projects/cis240055p/skhyalia/dataset_original/iemocap_valence_valid.csv', 'valid', 'valence', args.llama_model_path, args.max_seq_len)
 
     print(dataset_train)
 
@@ -206,7 +208,6 @@ def main(args):
     
     # define the model
     model = LaVINForRegression(args)
-
 
     model.to(device)
 

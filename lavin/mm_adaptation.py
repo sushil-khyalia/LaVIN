@@ -3,7 +3,7 @@ import torch
 
 import json
 from lavin import ModelArgs, Tokenizer, Transformer, TransformerForClassification, TransformerForRegression
-from lavin.mm_adapter import set_MMAdapter,set_Clip_Adapter,set_Vivit_Adapter,set_Whisper_Adapter
+from lavin.mm_adapter import set_MMAdapter,set_Clip_Adapter,set_Vivit_Adapter,set_Whisper_Adapter,set_Qwen_Adapter
 
 from pathlib import Path
 from util.apply_delta import apply_model_delta_online
@@ -236,7 +236,8 @@ def LaVINForRegression(args):
     if   args.adapter_type=='block' or  args.adapter_type=='attn':
         set_MMAdapter(llama.transformer,args.adapter_type,dim=args.adapter_dim,s=args.adapter_scale,t=args.temperature,gradient_checkpointing=args.gradient_checkpointing)
         # set_Clip_Adapter(llama.backbone.visual,args.visual_adapter_type,dim=args.adapter_dim,s=args.adapter_scale,t=args.temperature)
-        set_Vivit_Adapter(llama.transformer.video_backbone,args.visual_adapter_type,dim=args.adapter_dim,s=args.adapter_scale,t=args.temperature)
+        # set_Vivit_Adapter(llama.transformer.video_backbone,args.visual_adapter_type,dim=args.adapter_dim,s=args.adapter_scale,t=args.temperature)
+        set_Qwen_Adapter(llama.transformer.video_backbone,args.visual_adapter_type,dim=args.adapter_dim,s=args.adapter_scale,t=args.temperature)
         set_Whisper_Adapter(llama.transformer.audio_backbone,args.visual_adapter_type,dim=args.adapter_dim,s=args.adapter_scale,t=args.temperature)
 
 

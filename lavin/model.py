@@ -22,6 +22,7 @@ import pdb
 from timm.models.layers import  DropPath
 import clip
 import vivit
+import qwen2_vl
 import whisper
 from  torch.cuda.amp import autocast
 
@@ -638,8 +639,13 @@ class Transformer(nn.Module):
         )
 
         # self.backbone = clip.load('ViT-L/14')[0]
-        self.video_backbone = vivit.VivitModel.from_pretrained("google/vivit-b-16x2-kinetics400")
-        self.audio_backbone = whisper.WhisperModel.from_pretrained("openai/whisper-large-v3").encoder
+        # self.video_backbone = vivit.VivitModel.from_pretrained("google/vivit-b-16x2-kinetics400")
+        self.video_backbone = qwen2_vl.Qwen2VLForConditionalGeneration.from_pretrained("Qwen/Qwen2-VL-7B-Instruct")
+        del self.video_backbone.lm_head, self.video_backbone.model
+        self.video_backbone = self.video_backbone.visual
+        self.audio_backbone = whisper.WhisperModel.from_pretrained("openai/whisper-large-v3")
+        del self.audio_backbone.decoder
+        self.audio_backbone = self.audio_backbone.encoder
 
         #handcraft define self.backbone.visual.transformer.width
         self.video_adapter_proj = AdapterMLP(768, params.hidden_proj, params.dim).float()
@@ -746,16 +752,17 @@ class Transformer(nn.Module):
     #     c_loss = self.criterion(output, labels)
     #     return c_loss
     
-    def forward(self, examples, labels, videos = None, prefix_video = None, audios = None, prefix_audio = None, return_hidden=False):
+    def forward(self, examples, labels, video_pixel_values=None, video_grid_thw=None, prefix_video = None, audios = None, prefix_audio = None, return_hidden=False):
 
         # print(images.dtype)
         examples = examples.cuda()
         labels = labels.cuda()
-        videos = videos.cuda()
+        video_pixel_values = video_pixel_values.cuda()
+        video_grid_thw = video_grid_thw.cuda()
         audios =  audios.cuda()
         prefix_video = prefix_video.cuda()
         prefix_audio = prefix_audio.cuda()
-        video_embeds = self.video_backbone(videos.half())
+        video_embeds = self.video_backbone(video_pixel_values.half(), video_grid_thw.cuda())
         audio_embeds = self.audio_backbone(audios.half())
 
         # with autocast():
@@ -842,16 +849,16 @@ class TransformerForRegression(nn.Module):
         self.l1_loss = nn.L1Loss()
         self.corr_loss = ccc_loss
 
-    def forward(self, examples, labels, values, videos = None, prefix_video = None, audios = None, prefix_audio = None):
+    def forward(self, examples, labels, values,  video_pixel_values=None, video_grid_thw=None, prefix_video = None, audios = None, prefix_audio = None):
         values = values.cuda()
-        h, max_indices = self.transformer(examples, labels, videos=videos, prefix_video=prefix_video, audios=audios, prefix_audio=prefix_audio, return_hidden=True)
+        h, max_indices = self.transformer(examples, labels,  video_pixel_values=video_pixel_values, video_grid_thw=video_grid_thw, prefix_video=prefix_video, audios=audios, prefix_audio=prefix_audio, return_hidden=True)
         output = self.output_regression(self.dropout(h[torch.arange(h.shape[0]), max_indices].float())).squeeze(1)
         l1_loss = self.l1_loss(output, values)
         corr_loss = self.corr_loss(output, values)
         return l1_loss, corr_loss
     
-    def predict(self, examples, labels, values, videos = None, prefix_video = None, audios = None, prefix_audio = None):
+    def predict(self, examples, labels, values,  video_pixel_values=None, video_grid_thw=None, prefix_video = None, audios = None, prefix_audio = None):
         values = values.cuda()
-        h, max_indices = self.transformer(examples, labels, videos=videos, prefix_video=prefix_video, audios=audios, prefix_audio=prefix_audio, return_hidden=True)
+        h, max_indices = self.transformer(examples, labels,  video_pixel_values=video_pixel_values, video_grid_thw=video_grid_thw, prefix_video=prefix_video, audios=audios, prefix_audio=prefix_audio, return_hidden=True)
         output = self.output_regression(self.dropout(h[torch.arange(h.shape[0]), max_indices].float())).squeeze(1)
         return output

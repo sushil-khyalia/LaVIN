@@ -262,6 +262,20 @@ def forward_whisper_full(
 
     return outputs
 
+def forward_qwen(self, hidden_states, cu_seqlens, rotary_pos_emb) -> torch.Tensor:
+        hidden_states = hidden_states + self.attn(
+            self.adapter_attn(self.norm1(hidden_states)), cu_seqlens=cu_seqlens, rotary_pos_emb=rotary_pos_emb
+        )
+        hidden_states = hidden_states + self.mlp(self.norm2(hidden_states))
+        return hidden_states
+
+def forward_qwen_full(self, hidden_states, cu_seqlens, rotary_pos_emb) -> torch.Tensor:
+        hidden_states = hidden_states + self.attn(
+            self.adapter_attn(self.norm1(hidden_states)), cu_seqlens=cu_seqlens, rotary_pos_emb=rotary_pos_emb
+        )
+        hidden_states = hidden_states + self.mlp(self.adapter_mlp(self.norm2(hidden_states)))
+        return hidden_states
+
 
 def set_MMAdapter(model, method, dim=8, s=1, set_forward=True,t=10,gradient_checkpointing=False):
     if method == 'block':
@@ -363,4 +377,26 @@ def set_Whisper_Adapter(model, method, dim=8, s=1, set_forward=True, t=10.):
                 setattr(_, 'forward', bound_method)
         elif len(list(_.children())) != 0:
             set_Whisper_Adapter(_, method, dim, s, set_forward=set_forward, t=t)
+    return
+
+from qwen2_vl.modeling_qwen2_vl import Qwen2VLVisionBlock
+def set_Qwen_Adapter(model, method, dim=8, s=1, set_forward=True, t=10.):
+    for _ in model.children():
+        if type(_) == Qwen2VLVisionBlock:
+            if method=='router':
+                _.adapter_attn = RepAdapter_Router(1280, hidden_dim=dim, scale=s,  t=t)
+            elif method=='router_block':
+                _.adapter_attn = RepAdapter_Router(1280, hidden_dim=dim, scale=s,  t=t)
+                _.adapter_mlp = RepAdapter_Router(1280, hidden_dim=dim, scale=s,  t=t)
+            else:
+                _.adapter_attn = RepAdapter(1280, hidden_dim=dim, scale=s)
+            _.s = s
+            if method=='router_block':
+                bound_method = forward_qwen_full.__get__(_, _.__class__)
+            else:
+                bound_method = forward_qwen.__get__(_, _.__class__)
+            if set_forward:
+                setattr(_, 'forward', bound_method)
+        elif len(list(_.children())) != 0:
+            set_Qwen_Adapter(_, method, dim, s, set_forward=set_forward, t=t)
     return

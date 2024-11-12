@@ -20,6 +20,7 @@ import torch
 import torch.distributed as dist
 from torch import inf
 import numpy as np
+import torchvision
 
 class SmoothedValue(object):
     """Track a series of values and provide access to smoothed values over a
@@ -242,7 +243,7 @@ def init_distributed_mode(args):
     args.dist_backend = 'nccl'
     print('| distributed init (rank {}): {}, gpu {}'.format(
         args.rank, args.dist_url, args.gpu), flush=True)
-
+    
     torch.distributed.init_process_group(backend=args.dist_backend, init_method=args.dist_url,
                                          world_size=args.world_size, rank=args.rank)
     torch.distributed.barrier()
@@ -352,16 +353,18 @@ def sample_frame_indices(clip_len, frame_sample_rate, seg_len):
     Returns:
         indices (`List[int]`): List of sampled frame indices
     '''
-    converted_len = int(clip_len * frame_sample_rate)
-    if converted_len >= seg_len+1:
-        end_idx = seg_len
-        start_idx = 0
-    else:
-        end_idx = np.random.randint(converted_len, seg_len+1)
-        start_idx = end_idx - converted_len
+    end_idx = seg_len
+    start_idx = 0
     indices = np.linspace(start_idx, end_idx, num=clip_len)
     indices = np.clip(indices, start_idx, end_idx - 1).astype(np.int64)
     return indices
+
+def load_video(video_path, num_frames=60):
+    video, _, _ = torchvision.io.read_video(video_path, pts_unit="sec")
+    # Sample frames evenly
+    indices = torch.linspace(0, video.shape[0] - 1, num_frames).long()
+    video = video[indices]
+    return video
 
 def read_video_pyav(container, indices):
     '''
