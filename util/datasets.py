@@ -167,7 +167,7 @@ class MOSIDatasetForRegression(Data.Dataset):
         self.emotion = emotion
         self.raw_data = pd.read_csv(path)
         #self.image_processor = VivitImageProcessor.from_pretrained("google/vivit-b-16x2-kinetics400")
-        self.video_processor = AutoProcessor.from_pretrained("Qwen/Qwen2-VL-7B-Instruct", min_pixels=112*112, max_pixels=112*112).image_processor
+        self.video_processor = AutoProcessor.from_pretrained("Qwen/Qwen2-VL-7B-Instruct", min_pixels=56*56, max_pixels=56*56).image_processor
         self.feature_extractor = WhisperFeatureExtractor.from_pretrained("openai/whisper-large-v3")
         print(f"number of examples in split {split}: {len(self.raw_data)}\n")
 
@@ -196,8 +196,8 @@ class MOSIDatasetForRegression(Data.Dataset):
         video_path = data_point['video']
         video = load_video(video_path)
         video_inputs = self.video_processor(images=video, return_tensors="pt")
-        video_pixel_values = torch.tensor(video_inputs['pixel_values'])
-        video_grid_thw = torch.tensor(video_inputs['image_grid_thw'])
+        video_pixel_values = video_inputs['pixel_values']
+        video_grid_thw = video_inputs['image_grid_thw']
         # container = av.open(video_path)
         # indices = sample_frame_indices(clip_len=32, frame_sample_rate=16, seg_len=container.streams.video[0].frames)
         # video = read_video_pyav(container=container, indices=indices)

@@ -1049,9 +1049,9 @@ class Qwen2VisionTransformerPretrainedModel(Qwen2VLPreTrainedModel):
         for idx, blk in enumerate(self.blocks):
             hidden_states = blk(hidden_states, cu_seqlens=cu_seqlens, rotary_pos_emb=rotary_pos_emb)
             if (idx+1)%2 == 0:
-                ret_feats.append(self.merger(hidden_states)[:,:1])
+                ret_feats.append(self.merger(hidden_states)[:1])
 
-        return torch.cat(ret_feats, 1)
+        return torch.cat(ret_feats, 0)
 
 
 @add_start_docstrings(

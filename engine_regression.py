@@ -43,8 +43,6 @@ def train_one_epoch(model: torch.nn.Module,
         # we use a per iteration (instead of per epoch) lr scheduler
         if data_iter_step % accum_iter == 0:
             lr_sched.adjust_learning_rate(optimizer, data_iter_step / len(data_loader) + epoch, args)
-        print(video_grid_thw)
-        print(video_pixel_values)
         prefix_audio=prefix_audio.to(examples.device)
         prefix_video=prefix_video.to(examples.device)
         values = values.float()

@@ -160,8 +160,8 @@ def main(args):
     #     dataset_train = InstrcutDataSet(args, 'all', args.llama_model_path, args.max_seq_len)
     # else:
     #     dataset_train = ScienceQADataSet(args, 'train', args.llama_model_path, args.max_seq_len)
-    dataset_train = MOSIDatasetForRegression(args, '/ocean/projects/cis240055p/skhyalia/dataset_original/iemocap_valence_train.csv', 'train', 'valence', args.llama_model_path, args.max_seq_len)
-    dataset_valid = MOSIDatasetForRegression(args, '/ocean/projects/cis240055p/skhyalia/dataset_original/iemocap_valence_valid.csv', 'valid', 'valence', args.llama_model_path, args.max_seq_len)
+    dataset_train = MOSIDatasetForRegression(args, '/work/skhyalia/dataset_original/iemocap_valence_train.csv', 'train', 'valence', args.llama_model_path, args.max_seq_len)
+    dataset_valid = MOSIDatasetForRegression(args, '/work/skhyalia/dataset_original/iemocap_valence_valid.csv', 'valid', 'valence', args.llama_model_path, args.max_seq_len)
 
     print(dataset_train)
 
@@ -190,7 +190,8 @@ def main(args):
         pin_memory=args.pin_mem,
         drop_last=True,
         generator=g,
-        persistent_workers=True
+        persistent_workers=True,
+        collate_fn=misc.collate_fn
     )
 
     data_loader_valid = torch.utils.data.DataLoader(
@@ -200,11 +201,9 @@ def main(args):
         pin_memory=args.pin_mem,
         drop_last=False,
         generator=g,
-        persistent_workers=True
+        persistent_workers=True,
+        collate_fn=misc.collate_fn
     )
-
-
-
     
     # define the model
     model = LaVINForRegression(args)

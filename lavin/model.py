@@ -757,12 +757,12 @@ class Transformer(nn.Module):
         # print(images.dtype)
         examples = examples.cuda()
         labels = labels.cuda()
-        video_pixel_values = video_pixel_values.cuda()
-        video_grid_thw = video_grid_thw.cuda()
+        # video_pixel_values = video_pixel_values.cuda()
+        # video_grid_thw = video_grid_thw.cuda()
         audios =  audios.cuda()
         prefix_video = prefix_video.cuda()
         prefix_audio = prefix_audio.cuda()
-        video_embeds = self.video_backbone(video_pixel_values.half(), video_grid_thw.cuda())
+        video_embeds = torch.stack([self.video_backbone(x.half().cuda(), y.cuda()) for x,y in zip(video_pixel_values, video_grid_thw)])
         audio_embeds = self.audio_backbone(audios.half())
 
         # with autocast():

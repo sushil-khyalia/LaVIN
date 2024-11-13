@@ -264,16 +264,16 @@ def forward_whisper_full(
 
 def forward_qwen(self, hidden_states, cu_seqlens, rotary_pos_emb) -> torch.Tensor:
         hidden_states = hidden_states + self.attn(
-            self.adapter_attn(self.norm1(hidden_states)), cu_seqlens=cu_seqlens, rotary_pos_emb=rotary_pos_emb
+            self.adapter_attn(self.norm1(hidden_states).unsqueeze(0)).squeeze(0), cu_seqlens=cu_seqlens, rotary_pos_emb=rotary_pos_emb
         )
         hidden_states = hidden_states + self.mlp(self.norm2(hidden_states))
         return hidden_states
 
 def forward_qwen_full(self, hidden_states, cu_seqlens, rotary_pos_emb) -> torch.Tensor:
         hidden_states = hidden_states + self.attn(
-            self.adapter_attn(self.norm1(hidden_states)), cu_seqlens=cu_seqlens, rotary_pos_emb=rotary_pos_emb
+            self.adapter_attn(self.norm1(hidden_states).unsqueeze(0)).squeeze(0), cu_seqlens=cu_seqlens, rotary_pos_emb=rotary_pos_emb
         )
-        hidden_states = hidden_states + self.mlp(self.adapter_mlp(self.norm2(hidden_states)))
+        hidden_states = hidden_states + self.mlp(self.adapter_mlp(self.norm2(hidden_states).unsqueeze(0)).squeeze(0))
         return hidden_states
 
 

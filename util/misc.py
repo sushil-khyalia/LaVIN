@@ -359,12 +359,13 @@ def sample_frame_indices(clip_len, frame_sample_rate, seg_len):
     indices = np.clip(indices, start_idx, end_idx - 1).astype(np.int64)
     return indices
 
-def load_video(video_path, num_frames=60):
+def load_video(video_path, num_frames=120):
     video, _, _ = torchvision.io.read_video(video_path, pts_unit="sec")
     # Sample frames evenly
-    indices = torch.linspace(0, video.shape[0] - 1, num_frames).long()
-    video = video[indices]
-    return video
+    if video.shape[0] > num_frames:
+        indices = torch.linspace(0, video.shape[0] - 1, num_frames).long()
+        video = video[indices]
+    return video[:-1] if len(video) % 2 != 0 else video
 
 def read_video_pyav(container, indices):
     '''
@@ -427,3 +428,12 @@ def ccc_loss(
     y_hat: torch.Tensor,
 ) -> torch.tensor:
     return torch.tensor(1) - concordance_correlation_coefficient(y_true, y_hat)
+
+def collate_fn(batch):
+    examples, labels, y_values, example_masks, video_pixel_values, video_grid_thw, audios = zip(*batch)
+    examples_batch = torch.stack(examples)
+    labels_batch = torch.stack(labels)
+    y_values_batch = torch.stack(y_values)
+    example_masks_batch = torch.stack(example_masks)
+    audios_batch = torch.stack(audios)
+    return examples_batch, labels_batch, y_values_batch, example_masks_batch, video_pixel_values, video_grid_thw, audios_batch
