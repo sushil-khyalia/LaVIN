@@ -8,9 +8,6 @@ from pathlib import Path
 
 import torch
 import torch.backends.cudnn as cudnn
-from torch.distributed.fsdp import FullyShardedDataParallel as FSDP
-# from torch.distributed.fsdp.wrap import transformer_auto_wrap_policy
-# from torch.distributed.fsdp.wrap import size_based_auto_wrap_policy
 from torch.utils.tensorboard import SummaryWriter
 import timm.optim.optim_factory as optim_factory
 
@@ -167,7 +164,6 @@ def main(args):
         drop_last=True,
         generator=g,
         persistent_workers=True,
-        collate_fn=misc.collate_fn
     )
 
     data_loader_valid = torch.utils.data.DataLoader(
@@ -178,7 +174,6 @@ def main(args):
         drop_last=False,
         generator=g,
         persistent_workers=True,
-        collate_fn=misc.collate_fn
     )
 
     # define the model

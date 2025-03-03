@@ -15,7 +15,6 @@ from lavin.eval_model import ModelArgs, Transformer
 from lavin.tokenizer import Tokenizer
 from lavin.generator import LaVIN_Generator
 from lavin.mm_adapter import set_MMAdapter,set_Vivit_Adapter, set_Whisper_Adapter
-from dataclasses import dataclass
 import re
 import random
 
@@ -25,14 +24,9 @@ from whisper import WhisperFeatureExtractor
 
 import av
 import soundfile
-import numpy as np
 
 import warnings
 import pandas as pd
-from PIL import Image
-
-from torchvision.transforms import transforms
-from timm.data.constants import IMAGENET_DEFAULT_MEAN, IMAGENET_DEFAULT_STD
 
 from pathlib import Path
 import fairscale.nn.model_parallel.initialize as fs_init

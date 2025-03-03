@@ -22,13 +22,10 @@ import pandas as pd
 from util.misc import sample_frame_indices, read_video_pyav, load_video
 from vivit import VivitImageProcessor
 from whisper import WhisperFeatureExtractor
-from transformers import AutoTokenizer, AutoProcessor
 import av
 import soundfile
-import numpy as np
 from pathlib import Path
 import gc
-from qwen_vl_utils import fetch_video
 
 class MELDDataset(Data.Dataset):
     def __init__(self, args, path, split, emotion):

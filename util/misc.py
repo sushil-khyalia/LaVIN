@@ -426,12 +426,3 @@ def ccc_loss(
     y_hat: torch.Tensor,
 ) -> torch.tensor:
     return torch.tensor(1) - concordance_correlation_coefficient(y_true, y_hat)
-
-def collate_fn(batch):
-    examples, labels, y_values, example_masks, video_pixel_values, video_grid_thw, audios = zip(*batch)
-    examples_batch = torch.stack(examples)
-    labels_batch = torch.stack(labels)
-    y_values_batch = torch.stack(y_values)
-    example_masks_batch = torch.stack(example_masks)
-    audios_batch = torch.stack(audios)
-    return examples_batch, labels_batch, y_values_batch, example_masks_batch, video_pixel_values, video_grid_thw, audios_batch

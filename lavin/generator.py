@@ -7,7 +7,6 @@ import torch
 
 from lavin.tokenizer import Tokenizer
 from lavin.eval_model import Transformer
-from  torch.cuda.amp import autocast
 
 class LaVIN_Generator:
     def __init__(self, model: Transformer, tokenizer: Tokenizer):

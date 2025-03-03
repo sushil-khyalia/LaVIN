@@ -5,7 +5,6 @@ from torch import  nn
 import bitsandbytes as bnb
 
 from fairscale.nn.model_parallel.layers import (
-    ParallelEmbedding,
     RowParallelLinear,
     ColumnParallelLinear,
 )

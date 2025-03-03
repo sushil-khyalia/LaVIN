@@ -1,7 +1,7 @@
 CUDA_VISIBLE_DEVICES=0 torchrun --nproc_per_node 1 --master_port 11112 eval_next_qa.py \
     --ckpt_dir ../data/weights/ \
     --llm_model 8B \
-    --adapter_path /ocean/projects/cis240055p/skhyalia/LaVIN/LaVIN-8B-3.1-NExT-QA-prompt3/checkpoint-3.pth \
+    --adapter_path /ocean/projects/cis240055p/skhyalia/LaVIN/LaVIN-8B-3.1-NExT-QA/checkpoint-0.pth \
     --adapter_type attn \
     --adapter_dim 8 \
     --adapter_scale 1 \
