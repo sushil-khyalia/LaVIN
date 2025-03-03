@@ -3,7 +3,7 @@ import torch
 
 import json
 from lavin import ModelArgs, Tokenizer, Transformer, TransformerForClassification, TransformerForRegression
-from lavin.mm_adapter import set_MMAdapter,set_Clip_Adapter,set_Vivit_Adapter,set_Whisper_Adapter,set_Qwen_Adapter
+from lavin.mm_adapter import set_MMAdapter,set_Vivit_Adapter,set_Whisper_Adapter
 
 from pathlib import Path
 from util.apply_delta import apply_model_delta_online
@@ -97,8 +97,6 @@ def LaVIN(args):
 
     llama = Transformer(model_args)
 
-    #delete language encoder
-    # del llama.backbone.transformer
 
     torch.set_default_tensor_type(torch.FloatTensor)
 
@@ -113,7 +111,6 @@ def LaVIN(args):
 
     if   args.adapter_type=='block' or  args.adapter_type=='attn':
         set_MMAdapter(llama,args.adapter_type,dim=args.adapter_dim,s=args.adapter_scale,t=args.temperature,gradient_checkpointing=args.gradient_checkpointing)
-        # set_Clip_Adapter(llama.backbone.visual,args.visual_adapter_type,dim=args.adapter_dim,s=args.adapter_scale,t=args.temperature)
         set_Vivit_Adapter(llama.video_backbone,args.visual_adapter_type,dim=args.adapter_dim,s=args.adapter_scale,t=args.temperature)
         set_Whisper_Adapter(llama.audio_backbone,args.visual_adapter_type,dim=args.adapter_dim,s=args.adapter_scale,t=args.temperature)
 
@@ -158,8 +155,6 @@ def LaVINForClassification(args):
 
     llama = TransformerForClassification(model_args, num_classes=args.num_classes)
 
-    #delete language encoder
-    # del llama.backbone.transformer
     del llama.transformer.output
     torch.set_default_tensor_type(torch.FloatTensor)
 
@@ -174,7 +169,6 @@ def LaVINForClassification(args):
 
     if args.adapter_type=='block' or  args.adapter_type=='attn':
         set_MMAdapter(llama.transformer,args.adapter_type,dim=args.adapter_dim,s=args.adapter_scale,t=args.temperature,gradient_checkpointing=args.gradient_checkpointing)
-        # set_Clip_Adapter(llama.backbone.visual,args.visual_adapter_type,dim=args.adapter_dim,s=args.adapter_scale,t=args.temperature)
         set_Vivit_Adapter(llama.transformer.video_backbone,args.visual_adapter_type,dim=args.adapter_dim,s=args.adapter_scale,t=args.temperature)
         set_Whisper_Adapter(llama.transformer.audio_backbone,args.visual_adapter_type,dim=args.adapter_dim,s=args.adapter_scale,t=args.temperature)
 
@@ -219,8 +213,6 @@ def LaVINForRegression(args):
 
     llama = TransformerForRegression(model_args)
 
-    #delete language encoder
-    # del llama.backbone.transformer
     del llama.transformer.output
     torch.set_default_tensor_type(torch.FloatTensor)
 
@@ -233,11 +225,9 @@ def LaVINForRegression(args):
         apply_model_delta_online(llama,'../data/weights/vicuna_'+args.llm_model)
 
 
-    if   args.adapter_type=='block' or  args.adapter_type=='attn':
+    if args.adapter_type=='block' or  args.adapter_type=='attn':
         set_MMAdapter(llama.transformer,args.adapter_type,dim=args.adapter_dim,s=args.adapter_scale,t=args.temperature,gradient_checkpointing=args.gradient_checkpointing)
-        # set_Clip_Adapter(llama.backbone.visual,args.visual_adapter_type,dim=args.adapter_dim,s=args.adapter_scale,t=args.temperature)
-        # set_Vivit_Adapter(llama.transformer.video_backbone,args.visual_adapter_type,dim=args.adapter_dim,s=args.adapter_scale,t=args.temperature)
-        set_Qwen_Adapter(llama.transformer.video_backbone,args.visual_adapter_type,dim=args.adapter_dim,s=args.adapter_scale,t=args.temperature)
+        set_Vivit_Adapter(llama.transformer.video_backbone,args.visual_adapter_type,dim=args.adapter_dim,s=args.adapter_scale,t=args.temperature)
         set_Whisper_Adapter(llama.transformer.audio_backbone,args.visual_adapter_type,dim=args.adapter_dim,s=args.adapter_scale,t=args.temperature)
 
 

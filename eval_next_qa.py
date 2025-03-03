@@ -39,6 +39,9 @@ import fairscale.nn.model_parallel.initialize as fs_init
 import torch.distributed as dist
 from util.apply_delta import apply_model_delta_online
 
+from pathlib import Path
+import gc
+
 warnings.filterwarnings('ignore')
 
 
@@ -162,23 +165,10 @@ def _load_and_redistribute_checkpoint(llama_model_path, model_name):
     return checkpoint, tokenizer, params
 
 
-
-def get_acc_with_contion(res_pd, key, values):
-    if isinstance(values, list):
-        total_pd = res_pd[res_pd[key].isin(values)]
-    else:
-        total_pd = res_pd[res_pd[key] == values]
-    correct_pd = total_pd[total_pd['true_false'] == True]
-    acc = "{:.2f}".format(len(correct_pd) / len(total_pd) * 100)
-    return acc
-
 def load(
     ckpt_dir: str,
     llm_model:str,
-    tokenizer_path: str,
     adapter_path: str,
-    local_rank: int,
-    world_size: int,
     max_seq_len: int,
     max_batch_size: int,
     adapter_type: str,
@@ -252,7 +242,6 @@ def get_pred_idx(prediction, choices, options):
 
 def main(
     ckpt_dir: str,
-    tokenizer_path: str,
     adapter_path: str,
     max_seq_len: int,
     max_batch_size: int,
@@ -260,7 +249,6 @@ def main(
     generation_temperature: float = 0.1,
     top_p: float = 0.75,
     split='valid',
-    options=["-3", "-2", "-1", "0", "1", "2", "3"],
     adapter_type='repattn',
     adapter_dim=8,
     adapter_scale=1,
@@ -276,21 +264,43 @@ def main(
     if local_rank > 0:
         sys.stdout = open(os.devnull, "w")
 
+    generator = load(
+        ckpt_dir,llm_model, adapter_path, max_seq_len, max_batch_size,
+        adapter_type,adapter_dim,adapter_scale,hidden_proj,visual_adapter_type,
+        temperature,use_vicuna,bits=bits,cpu_load=cpu_load)
+    
+    print('split: ', split)
+
     image_processor = VivitImageProcessor.from_pretrained("google/vivit-b-16x2-kinetics400")
     feature_extractor = WhisperFeatureExtractor.from_pretrained("openai/whisper-large-v3")
+    video_path = Path('/ocean/projects/cis240055p/skhyalia/NExTVideo')
+    data_path = Path('/ocean/projects/cis240055p/skhyalia/NExT-QA/dataset/nextqa/test.csv')
+    raw_data = pd.read_csv(data_path)
+    map = json.load(open('/ocean/projects/cis240055p/skhyalia/NExT-QA/dataset/nextqa/map_vid_vidorID.json','r'))
+    feature_directory = video_path/"processed_features"
+    feature_directory.mkdir(exist_ok=True)
+    for _, row in raw_data.iterrows():
+        id = str(row['video'])
+        if not (feature_directory/(id+"_video.pt")).exists():
+            video_file_path = video_path/(map[id] + ".mp4")
+            audio_file_path = video_path/(map[id] + ".wav")
+            command = f'/ocean/projects/cis240055p/skhyalia/NExT-QA/extract_or_generate_audio.sh {video_file_path} {audio_file_path}'
+            os.system(command)
+            container = av.open(video_file_path)
+            indices = sample_frame_indices(clip_len=32, frame_sample_rate=4, seg_len=container.streams.video[0].frames)
+            video = read_video_pyav(container=container, indices=indices)
+            video = image_processor(list(video), return_tensors="pt").pixel_values.squeeze(0)
+            waveform, sampling_rate = soundfile.read(audio_file_path)
+            audio = feature_extractor(waveform, sampling_rate=sampling_rate, return_tensors="pt").input_features.squeeze(0)
+            torch.save(video, feature_directory/(id+"_video.pt"))
+            torch.save(audio, feature_directory/(id+"_audio.pt"))
+            gc.collect()
 
-    generator = load(
-        ckpt_dir,llm_model, tokenizer_path, adapter_path, local_rank, world_size, max_seq_len, max_batch_size,
-        adapter_type,adapter_dim,adapter_scale,hidden_proj,visual_adapter_type,
-    temperature,use_vicuna,bits=bits,cpu_load=cpu_load)
-
-    print('split: ', split)
-    raw_data = pd.read_csv('/work/skhyalia/dataset_original/mosi_sentiment_%s.csv' % (split))    
     total_items=len(raw_data)
     print('total_items: ',total_items)
 
-
-    pattern = re.compile(r'The sentiment is (-?[0-3])')
+    choices = ["Final Answer: (1)", "Final Answer: (2)", "Final Answer: (3)", "Final Answer: (4)", "Final Answer: (5)"]
+    pattern = re.compile('Final Answer: \([1-5]\)')
 
     answers = []
     preds=[]
@@ -304,20 +314,15 @@ def main(
         videos = []
         audios = []
         for _, data_point in data_points.iterrows():
-            video_path = data_point['video']
-            container = av.open(video_path)
-            indices = sample_frame_indices(clip_len=32, frame_sample_rate=4, seg_len=container.streams.video[0].frames)
-            video = read_video_pyav(container=container, indices=indices)
-            video = image_processor(list(video), return_tensors="pt").pixel_values.squeeze(0)
-            audio_path = data_point['audio']
-            waveform, sampling_rate = soundfile.read(audio_path)
-            audio = feature_extractor(waveform, sampling_rate=sampling_rate, return_tensors="pt").input_features.squeeze(0)
-            prompt_text = f"Text: {data_point['sentence']}"
-            prompt_text+="Response: "
+            id = str(data_point['video'])
+            video = torch.load(video_path/"processed_features"/(id+"_video.pt"))
+            audio = torch.load(video_path/"processed_features"/(id+"_audio.pt"))
+            prompt_text = f"You will be given a question about a video and five possible answer options.\nQuestion: {data_point['question']}?\nPossible Answer Choices:\n(1) {data_point['a0']}\n(2) {data_point['a1']}\n(3) {data_point['a2']}\n(4) {data_point['a3']}\n(5) {data_point['a4']}\nOutput the final answer in the format \"Final Answer: (X) Y.\" where X is the correct digit choice and Y is the text of the choice. Never say \"unknown\" or \"unsure\", or \"None\", instead provide your most likely guess.\n"
+            prompt_text+="Final Answer: "
             prompt_text='\n'+prompt_text
             prompt_text = prompt_text.replace("  ", " ").strip()
-
-            label = str(int(np.round(data_point['y'])))
+            
+            label = f"Final Answer: ({data_point['answer']+1})"
             prompts.append(prompt_text)
             answers.append(label)
             videos.append(video.unsqueeze(0))
@@ -343,12 +348,12 @@ def main(
     #evaluations
     results={}
     correct=0
-    choices = ["-3", "-2", "-1", "0", "1", "2", "3"]
+
     for i, prediction in enumerate(preds):
         pred_idx = get_pred_idx(prediction, choices, choices)  # 0, 1, ..., 4
         if pred_idx == choices.index(answers[i]):
             correct += 1
-        results[f"{raw_data.iloc[i]['meta_id']}_{raw_data.iloc[i]['meta_clip']}"] = prediction
+        results[f"{raw_data.iloc[i]['video']}_{raw_data.iloc[i]['qid']}"] = prediction
     acc = correct / len(results) * 100
     print('overall accuracy: ', acc)
 

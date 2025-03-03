@@ -121,16 +121,6 @@ def forward_llama_block_cache(self, x: torch.Tensor, start_pos: int, freqs_cis: 
     out = h + self.drop_path(self.feed_forward.forward(self.adapter_mlp(self.ffn_norm(h),self.cache_weights_ffn[:bs_])))
     return out
 
-def forward_clip(self, x: torch.Tensor):
-    x = x + self.attention(self.adapter_attn(self.ln_1(x)))
-    x = x + self.mlp(self.ln_2(x))
-    return x
-
-def forward_clip_full(self, x: torch.Tensor):
-    x = x + self.attention(self.adapter_attn(self.ln_1(x)))
-    x = x + self.mlp(self.adapter_mlp(self.ln_2(x)))
-    return x
-
 
 def forward_vivit(self, hidden_states, head_mask=None, output_attentions=False):
     self_attention_outputs = self.attention(
@@ -314,27 +304,6 @@ def set_MMAdapter(model, method, dim=8, s=1, set_forward=True,t=10,gradient_chec
                 set_MMAdapter(_, method, dim, s, set_forward=set_forward,t=t,gradient_checkpointing=gradient_checkpointing)
 
 
-from clip.model import ResidualAttentionBlock
-def set_Clip_Adapter(model, method, dim=8, s=1, set_forward=True, t=10.):
-    for _ in model.children():
-        if type(_) == ResidualAttentionBlock:
-            if method=='router':
-                _.adapter_attn = RepAdapter_Router(1024, hidden_dim=dim, scale=s,  t=t)
-            elif method=='router_block':
-                _.adapter_attn = RepAdapter_Router(1024, hidden_dim=dim, scale=s,  t=t)
-                _.adapter_mlp = RepAdapter_Router(1024, hidden_dim=dim, scale=s,  t=t)
-            else:
-                _.adapter_attn = RepAdapter(1024, hidden_dim=dim, scale=s)
-            _.s = s
-            if method=='router_block':
-                bound_method = forward_clip_full.__get__(_, _.__class__)
-            else:
-                bound_method = forward_clip.__get__(_, _.__class__)
-            if set_forward:
-                setattr(_, 'forward', bound_method)
-        elif len(list(_.children())) != 0:
-            set_Clip_Adapter(_, method, dim, s, set_forward=set_forward, t=t)
-
 from vivit import VivitLayer
 def set_Vivit_Adapter(model, method, dim=8, s=1, set_forward=True, t=10.):
     for _ in model.children():
@@ -377,26 +346,4 @@ def set_Whisper_Adapter(model, method, dim=8, s=1, set_forward=True, t=10.):
                 setattr(_, 'forward', bound_method)
         elif len(list(_.children())) != 0:
             set_Whisper_Adapter(_, method, dim, s, set_forward=set_forward, t=t)
-    return
-
-from qwen2_vl.modeling_qwen2_vl import Qwen2VLVisionBlock
-def set_Qwen_Adapter(model, method, dim=8, s=1, set_forward=True, t=10.):
-    for _ in model.children():
-        if type(_) == Qwen2VLVisionBlock:
-            if method=='router':
-                _.adapter_attn = RepAdapter_Router(1280, hidden_dim=dim, scale=s,  t=t)
-            elif method=='router_block':
-                _.adapter_attn = RepAdapter_Router(1280, hidden_dim=dim, scale=s,  t=t)
-                _.adapter_mlp = RepAdapter_Router(1280, hidden_dim=dim, scale=s,  t=t)
-            else:
-                _.adapter_attn = RepAdapter(1280, hidden_dim=dim, scale=s)
-            _.s = s
-            if method=='router_block':
-                bound_method = forward_qwen_full.__get__(_, _.__class__)
-            else:
-                bound_method = forward_qwen.__get__(_, _.__class__)
-            if set_forward:
-                setattr(_, 'forward', bound_method)
-        elif len(list(_.children())) != 0:
-            set_Qwen_Adapter(_, method, dim, s, set_forward=set_forward, t=t)
     return

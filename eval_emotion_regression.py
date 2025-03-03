@@ -1,23 +1,16 @@
 import os
 import argparse
-import datetime
-import json
-import time
 import numpy as np
 from pathlib import Path
 
 import torch
 import torch.backends.cudnn as cudnn
-from torch.utils.tensorboard import SummaryWriter
-import timm.optim.optim_factory as optim_factory
 
 import util.misc as misc
-from util.misc import NativeScalerWithGradNormCount as NativeScaler
 
-from util.datasets import ScienceQADataSet,InstrcutDataSet,MOSIDatasetForRegression
+from util.datasets import EmotionDatasetForRegression
 from lavin.mm_adaptation import LaVINForRegression
 import random
-import bitsandbytes as bnb
 from util.misc import correlation, concordance_correlation_coefficient
 
 def get_args_parser():
@@ -27,9 +20,7 @@ def get_args_parser():
     parser.add_argument('--epochs', default=400, type=int)
     parser.add_argument('--bits', default='16bit', type=str,choices=['4bit','8bit','16bit'],
                         help='Quantization bits for training, fp16 by default')
-    parser.add_argument('--accum_iter', default=1, type=int,
-                        help='Accumulate gradient iterations (for increasing the effective batch size under memory constraints)')
-
+    
     # Model parameters
     parser.add_argument('--llama_model_path', default='./llama', type=str,
                         help='path of llama model')
@@ -57,45 +48,20 @@ def get_args_parser():
     parser.add_argument('--temperature', type=float, default=10., metavar='LENGTH',
                         help='the temperature of router')
 
-    parser.add_argument('--n_prompt', type=int, default=10, metavar='LENGTH',
-                        help='the length of visual features')
     parser.add_argument('--adapter_scale', type=float, default=1., metavar='LENGTH', help='the scales of adapter layer')
     parser.add_argument('--drop_path', type=float, default=0., metavar='LENGTH', help='drop path')
 
     parser.add_argument('--max_seq_len', type=int, default=512, metavar='LENGTH',
                         help='the maximum sequence length')
 
-
-    # Optimizer parameters
-    parser.add_argument('--weight_decay', type=float, default=0.05,
-                        help='weight decay (default: 0.05)')
-
-    parser.add_argument('--lr', type=float, default=None, metavar='LR',
-                        help='learning rate (absolute lr)')
-    parser.add_argument('--clip_grad', type=float, default=None, metavar='clip gradient',
-                        help='clips gradient norm of an iterable of parameters')
-    parser.add_argument('--blr', type=float, default=1e-3, metavar='LR',
-                        help='base learning rate: absolute_lr = base_lr * total_batch_size / 256')
-    parser.add_argument('--min_lr', type=float, default=0., metavar='LR',
-                        help='lower lr bound for cyclic schedulers that hit 0')
-
     parser.add_argument('--gradient_checkpointing', action='store_true',
                         help='saving memory costs via gradient_checkpointing')
-    parser.add_argument('--warmup_epochs', type=float, default=40, metavar='N',
-                        help='epochs to warmup LR')
-
+    
     # Dataset parameters
-    parser.add_argument('--data_path', default='/instruction_dataset/', type=str,
-                        help='dataset path')
-
-    parser.add_argument('--output_dir', default='./output_dir',
-                        help='path where to save, empty for no saving')
-    parser.add_argument('--log_dir', default='./output_dir',
-                        help='path where to tensorboard log')
     parser.add_argument('--device', default='cuda',
                         help='device to use for training / testing')
     parser.add_argument('--seed', default=0, type=int)
-    parser.add_argument('--resume', default='',
+    parser.add_argument('--adapter_path', default='',
                         help='resume from checkpoint')
 
     parser.add_argument('--start_epoch', default=0, type=int, metavar='N',
@@ -115,21 +81,6 @@ def get_args_parser():
                         help='url used to set up distributed training')
 
     #datasets
-    parser.add_argument('--prompt_format',
-                        type=str,
-                        default='CQM-A',
-                        choices=[
-                            'CQM-A', 'CQM-LA', 'CQM-EA', 'CQM-LEA', 'CQM-ELA', 'CQM-AL', 'CQM-AE', 'CQM-ALE', 'QCM-A',
-                            'QCM-LA', 'QCM-EA', 'QCM-LEA', 'QCM-ELA', 'QCM-AL', 'QCM-AE', 'QCM-ALE', 'QCML-A', 'QCME-A',
-                            'QCMLE-A', 'QCLM-A', 'QCEM-A', 'QCLEM-A', 'QCML-AE'
-                        ],
-                        help='prompt format template')
-    parser.add_argument('--options', type=list, default=["A", "B", "C", "D", "E"])
-    parser.add_argument('--caption_file', type=str, default='../data/captions.json')
-    parser.add_argument('--data_root', type=str, default='../data')
-    parser.add_argument('--use_caption', action='store_true', help='use image captions or not')
-    parser.add_argument('--do_pretrain', action='store_true', help='pre-train on large scale vl instruction')
-
     return parser
 
 
@@ -153,12 +104,7 @@ def main(args):
     cudnn.benchmark = False
     cudnn.deterministic = True
 
-
-    # if args.do_pretrain:
-    #     dataset_train = InstrcutDataSet(args, 'all', args.llama_model_path, args.max_seq_len)
-    # else:
-    #     dataset_train = ScienceQADataSet(args, 'train', args.llama_model_path, args.max_seq_len)
-    dataset_test = MOSIDatasetForRegression(args,'/work/skhyalia/dataset_original/iemocap_valence_test.csv', 'test', 'valence', args.llama_model_path, args.max_seq_len)
+    dataset_test = EmotionDatasetForRegression(args,'/ocean/projects/cis240055p/skhyalia/dataset_original/iemocap_valence_test.csv', 'test', 'valence', args.llama_model_path, args.max_seq_len)
     g = torch.Generator()
     num_tasks = misc.get_world_size()
     global_rank = misc.get_rank()
@@ -176,15 +122,8 @@ def main(args):
     )
     # define the model
     model = LaVINForRegression(args)
-    model_without_ddp = model
 
-    # if args.distributed:
-    #     print(args.gpu)
-    #     model.to(torch.device('cuda'))
-    #     model = torch.nn.parallel.DistributedDataParallel(model, device_ids=[args.gpu],find_unused_parameters=True)
-    #     model_without_ddp = model.module
-    
-    adapter_checkpoint = torch.load(args.resume, map_location="cpu")
+    adapter_checkpoint = torch.load(args.adapter_path, map_location="cpu")
     state_dict={}
     for key in adapter_checkpoint['model']:
         state_dict[key.replace('module.','')]=adapter_checkpoint['model'][key]
@@ -194,7 +133,6 @@ def main(args):
 
     model.eval()
     with torch.no_grad():
-        start_time = time.time()
         total_items=len(dataset_test)
         print('total_items: ',total_items)
         answers = []
@@ -213,13 +151,9 @@ def main(args):
         mae_loss = torch.nn.L1Loss()(preds, answers)
         print("Correlation: ",corr.item())
         print("MAE: ", mae_loss.item())
-        total_time = time.time() - start_time
-        total_time_str = str(datetime.timedelta(seconds=int(total_time)))
 
 if __name__ == '__main__':
 
     args = get_args_parser()
     args = args.parse_args()
-    if args.output_dir:
-        Path(args.output_dir).mkdir(parents=True, exist_ok=True)
     main(args)

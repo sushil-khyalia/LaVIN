@@ -13,9 +13,9 @@ import timm.optim.optim_factory as optim_factory
 
 import util.misc as misc
 from util.misc import NativeScalerWithGradNormCount as NativeScaler
-from engine import train_one_epoch
+from engine import train_one_epoch, val_one_epoch
 
-from util.datasets import ScienceQADataSet,InstrcutDataSet,MOSIDataset
+from util.datasets import MELDDataset, NextQADataset
 from lavin.mm_adaptation import LaVIN
 import random
 import bitsandbytes as bnb
@@ -57,8 +57,6 @@ def get_args_parser():
     parser.add_argument('--temperature', type=float, default=10., metavar='LENGTH',
                         help='the temperature of router')
 
-    parser.add_argument('--n_prompt', type=int, default=10, metavar='LENGTH',
-                        help='the length of visual features')
     parser.add_argument('--adapter_scale', type=float, default=1., metavar='LENGTH', help='the scales of adapter layer')
     parser.add_argument('--drop_path', type=float, default=0., metavar='LENGTH', help='drop path')
 
@@ -85,9 +83,6 @@ def get_args_parser():
                         help='epochs to warmup LR')
 
     # Dataset parameters
-    parser.add_argument('--data_path', default='/instruction_dataset/', type=str,
-                        help='dataset path')
-
     parser.add_argument('--output_dir', default='./output_dir',
                         help='path where to save, empty for no saving')
     parser.add_argument('--log_dir', default='./output_dir',
@@ -115,21 +110,8 @@ def get_args_parser():
                         help='url used to set up distributed training')
 
     #datasets
-    parser.add_argument('--prompt_format',
-                        type=str,
-                        default='CQM-A',
-                        choices=[
-                            'CQM-A', 'CQM-LA', 'CQM-EA', 'CQM-LEA', 'CQM-ELA', 'CQM-AL', 'CQM-AE', 'CQM-ALE', 'QCM-A',
-                            'QCM-LA', 'QCM-EA', 'QCM-LEA', 'QCM-ELA', 'QCM-AL', 'QCM-AE', 'QCM-ALE', 'QCML-A', 'QCME-A',
-                            'QCMLE-A', 'QCLM-A', 'QCEM-A', 'QCLEM-A', 'QCML-AE'
-                        ],
-                        help='prompt format template')
-    parser.add_argument('--options', type=list, default=["A", "B", "C", "D", "E"])
-    parser.add_argument('--caption_file', type=str, default='../data/captions.json')
-    parser.add_argument('--data_root', type=str, default='../data')
-    parser.add_argument('--use_caption', action='store_true', help='use image captions or not')
-    parser.add_argument('--do_pretrain', action='store_true', help='pre-train on large scale vl instruction')
-
+    parser.add_argument('--dataset', type=str, default='normal', metavar='LENGTH',choices=['nextqa','meld'],
+                        help='dataset to finetune on')
     return parser
 
 
@@ -153,13 +135,13 @@ def main(args):
     cudnn.benchmark = False
     cudnn.deterministic = True
 
+    if args.dataset == 'nextqa':
+        dataset_train = NextQADataset(args, '/ocean/projects/cis240055p/skhyalia/NExT-QA/dataset/nextqa/train.csv', '/ocean/projects/cis240055p/skhyalia/NExT-QA/dataset/nextqa/map_vid_vidorID.json', 'train', '/ocean/projects/cis240055p/skhyalia/NExTVideo')
+        dataset_valid = NextQADataset(args, '/ocean/projects/cis240055p/skhyalia/NExT-QA/dataset/nextqa/val.csv', '/ocean/projects/cis240055p/skhyalia/NExT-QA/dataset/nextqa/map_vid_vidorID.json', 'val', '/ocean/projects/cis240055p/skhyalia/NExTVideo')
 
-    # if args.do_pretrain:
-    #     dataset_train = InstrcutDataSet(args, 'all', args.llama_model_path, args.max_seq_len)
-    # else:
-    #     dataset_train = ScienceQADataSet(args, 'train', args.llama_model_path, args.max_seq_len)
-    dataset_train = MOSIDataset(args, 'train', args.llama_model_path, args.max_seq_len)
-
+    if args.dataset == 'meld':
+        dataset_train = MELDDataset(args, '/ocean/projects/cis240055p/skhyalia/MELD/train_meld.csv', 'train', 'Emotion')
+        dataset_valid = MELDDataset(args, '/ocean/projects/cis240055p/skhyalia/MELD/dev_meld.csv', 'dev', 'Emotion')
     print(dataset_train)
 
 
@@ -167,6 +149,9 @@ def main(args):
     global_rank = misc.get_rank()
     sampler_train = torch.utils.data.DistributedSampler(
         dataset_train, num_replicas=num_tasks, rank=global_rank, shuffle=True
+    )
+    sampler_valid = torch.utils.data.DistributedSampler(
+        dataset_valid, num_replicas=num_tasks, rank=global_rank, shuffle=False
     )
 
     print("Sampler_train = %s" % str(sampler_train))
@@ -184,21 +169,27 @@ def main(args):
         pin_memory=args.pin_mem,
         drop_last=True,
         generator=g,
-
+        persistent_workers=True
     )
 
+    data_loader_valid = torch.utils.data.DataLoader(
+        dataset_valid, sampler=sampler_valid,
+        batch_size=32,
+        num_workers=args.num_workers,
+        pin_memory=args.pin_mem,
+        drop_last=False,
+        generator=g,
+        persistent_workers=True
+    )
 
-
-    
     # define the model
     model = LaVIN(args)
-
-
     model.to(device)
 
     #for debug.   print the data type.
     for name, param in model.named_parameters():
-        print(name,param.dtype)
+        if param.requires_grad:
+            print(name,param.dtype)
 
     model_without_ddp = model
 
@@ -235,10 +226,12 @@ def main(args):
 
     print(f"Start training for {args.epochs} epochs")
     start_time = time.time()
+    best_val = float('inf')
     for epoch in range(args.start_epoch, args.epochs):
 
         if args.distributed:
             data_loader_train.sampler.set_epoch(epoch)
+            data_loader_valid.sampler.set_epoch(epoch)
 
         train_stats = train_one_epoch(
             model, data_loader_train,
@@ -246,11 +239,6 @@ def main(args):
             log_writer=log_writer,
             args=args
         )
-
-        if args.output_dir:
-            misc.save_model(
-                args=args, model=model, model_without_ddp=model_without_ddp, optimizer=optimizer,
-                loss_scaler=loss_scaler, epoch=epoch)
 
         log_stats = {**{f'train_{k}': v for k, v in train_stats.items()},
                         'epoch': epoch,}
@@ -261,6 +249,20 @@ def main(args):
                 log_writer.flush()
             with open(os.path.join(args.output_dir, "log.txt"), mode="a", encoding="utf-8") as f:
                 f.write(json.dumps(log_stats) + "\n")
+
+        with torch.no_grad():
+            val_stats = val_one_epoch(
+                model, data_loader_valid,
+                device, epoch,
+                log_writer=log_writer,
+                args=args
+            )
+            if val_stats['closs'] < best_val:
+                best_val = val_stats['closs']
+                if args.output_dir:
+                    misc.save_model(
+                        args=args, model=model, model_without_ddp=model_without_ddp, optimizer=optimizer,
+                        loss_scaler=loss_scaler, epoch=epoch)
 
     total_time = time.time() - start_time
     total_time_str = str(datetime.timedelta(seconds=int(total_time)))

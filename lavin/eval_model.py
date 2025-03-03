@@ -8,7 +8,7 @@ import math
 import torch
 from torch import nn
 import torch.nn.functional as F
-import clip,vivit,whisper
+import vivit,whisper
 import fairscale.nn.model_parallel.initialize as fs_init
 from fairscale.nn.model_parallel.layers import (
     VocabParallelEmbedding,
@@ -28,12 +28,12 @@ class ModelArgs:
     ffn_dim_multiplier: Optional[float] = None
     norm_eps: float = 1e-5
     rope_theta: float = 500000
-    hidden_proj: int=128
+    use_scaled_rope: bool = False
 
     max_batch_size: int = 32
     max_seq_len: int = 2048
     drop_path: float=0.
-
+    hidden_proj: int=128
 
 
 class RMSNorm(torch.nn.Module):

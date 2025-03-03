@@ -26,10 +26,9 @@
                 "RANK": "0",
                 "WORLD_SIZE": "1",
             },
-            "program": "eval.py",
+            "program": "eval_next_qa.py",
             "console": "integratedTerminal",
-            "args": ["--ckpt_dir", "../data/weights/", "--llm_model", "8B", "--tokenizer_path", "../data/weights/8B/tokenizer.model", "--data_root", "../data", "--caption_file", "../data/captions.json", "--adapter_path", "./LaVIN-8B/checkpoint-19.pth", "--adapter_type", "attn", "--adapter_dim", "8", "--adapter_scale", "1", "--prompt_format", "QCM-ALE", "--max_batch_size", "64", "--max_seq_len", "512", "--split", "test", "--n_prompt", "6", "--temperature", "10.", "--visual_adapter_type", "router"],
+            "args": ["--ckpt_dir", "../data/weights/", "--llm_model", "8B", "--tokenizer_path", "../data/weights/8B/tokenizer.model", "--adapter_path", "/ocean/projects/cis240055p/skhyalia/LaVIN/LaVIN-8B-3.1-NExT-QA-prompt2/checkpoint-1.pth", "--adapter_type", "attn", "--adapter_dim", "8", "--adapter_scale", "1", "--max_batch_size", "32", "--max_seq_len", "512", "--split", "test", "--temperature", "10.", "--visual_adapter_type", "router"],
         },
-        
     ]
 }
