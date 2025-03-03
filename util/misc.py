@@ -352,15 +352,8 @@ def sample_frame_indices(clip_len, frame_sample_rate, seg_len):
     Returns:
         indices (`List[int]`): List of sampled frame indices
     '''
-    converted_len = int(clip_len * frame_sample_rate)
-    if converted_len >= seg_len+1:
-        end_idx = seg_len
-        start_idx = 0
-    else:
-        end_idx = np.random.randint(converted_len, seg_len+1)
-        start_idx = end_idx - converted_len
-    indices = np.linspace(start_idx, end_idx, num=clip_len)
-    indices = np.clip(indices, start_idx, end_idx - 1).astype(np.int64)
+    indices = np.linspace(0, seg_len, num=clip_len)
+    indices = np.clip(indices, 0, seg_len - 1).astype(np.int64)
     return indices
 
 def read_video_pyav(container, indices):

@@ -15,7 +15,7 @@ import util.misc as misc
 from util.misc import NativeScalerWithGradNormCount as NativeScaler
 from engine_regression import train_one_epoch, val_one_epoch
 
-from util.datasets import ScienceQADataSet,InstrcutDataSet,MOSIDatasetForRegression
+from util.datasets import EmotionDatasetForRegression
 from lavin.mm_adaptation import LaVINForRegression
 import random
 import bitsandbytes as bnb
@@ -57,8 +57,6 @@ def get_args_parser():
     parser.add_argument('--temperature', type=float, default=10., metavar='LENGTH',
                         help='the temperature of router')
 
-    parser.add_argument('--n_prompt', type=int, default=10, metavar='LENGTH',
-                        help='the length of visual features')
     parser.add_argument('--adapter_scale', type=float, default=1., metavar='LENGTH', help='the scales of adapter layer')
     parser.add_argument('--drop_path', type=float, default=0., metavar='LENGTH', help='drop path')
 
@@ -85,9 +83,6 @@ def get_args_parser():
                         help='epochs to warmup LR')
 
     # Dataset parameters
-    parser.add_argument('--data_path', default='/instruction_dataset/', type=str,
-                        help='dataset path')
-
     parser.add_argument('--output_dir', default='./output_dir',
                         help='path where to save, empty for no saving')
     parser.add_argument('--log_dir', default='./output_dir',
@@ -115,21 +110,6 @@ def get_args_parser():
                         help='url used to set up distributed training')
 
     #datasets
-    parser.add_argument('--prompt_format',
-                        type=str,
-                        default='CQM-A',
-                        choices=[
-                            'CQM-A', 'CQM-LA', 'CQM-EA', 'CQM-LEA', 'CQM-ELA', 'CQM-AL', 'CQM-AE', 'CQM-ALE', 'QCM-A',
-                            'QCM-LA', 'QCM-EA', 'QCM-LEA', 'QCM-ELA', 'QCM-AL', 'QCM-AE', 'QCM-ALE', 'QCML-A', 'QCME-A',
-                            'QCMLE-A', 'QCLM-A', 'QCEM-A', 'QCLEM-A', 'QCML-AE'
-                        ],
-                        help='prompt format template')
-    parser.add_argument('--options', type=list, default=["A", "B", "C", "D", "E"])
-    parser.add_argument('--caption_file', type=str, default='../data/captions.json')
-    parser.add_argument('--data_root', type=str, default='../data')
-    parser.add_argument('--use_caption', action='store_true', help='use image captions or not')
-    parser.add_argument('--do_pretrain', action='store_true', help='pre-train on large scale vl instruction')
-
     return parser
 
 
@@ -154,12 +134,8 @@ def main(args):
     cudnn.deterministic = True
 
 
-    # if args.do_pretrain:
-    #     dataset_train = InstrcutDataSet(args, 'all', args.llama_model_path, args.max_seq_len)
-    # else:
-    #     dataset_train = ScienceQADataSet(args, 'train', args.llama_model_path, args.max_seq_len)
-    dataset_train = MOSIDatasetForRegression(args, '/work/skhyalia/dataset_original/iemocap_valence_train.csv', 'train', 'valence', args.llama_model_path, args.max_seq_len)
-    dataset_valid = MOSIDatasetForRegression(args, '/work/skhyalia/dataset_original/iemocap_valence_valid.csv', 'valid', 'valence', args.llama_model_path, args.max_seq_len)
+    dataset_train = EmotionDatasetForRegression(args, '/ocean/projects/cis240055p/skhyalia/dataset_original/iemocap_valence_train.csv', 'train', 'valence', args.llama_model_path, args.max_seq_len)
+    dataset_valid = EmotionDatasetForRegression(args, '/ocean/projects/cis240055p/skhyalia/dataset_original/iemocap_valence_valid.csv', 'valid', 'valence', args.llama_model_path, args.max_seq_len)
 
     print(dataset_train)
 
@@ -201,13 +177,8 @@ def main(args):
         persistent_workers=True
     )
 
-
-
-    
     # define the model
     model = LaVINForRegression(args)
-
-
     model.to(device)
 
     #for debug.   print the data type.

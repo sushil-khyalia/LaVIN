@@ -37,7 +37,6 @@ def train_one_epoch(model: torch.nn.Module,
 
     prefix_audio = torch.tensor(data_loader.dataset.tokenizer.encode("Audio: ", bos=False, eos=False), dtype=torch.int64)
     prefix_video = torch.tensor(data_loader.dataset.tokenizer.encode("Video: ", bos=False, eos=False), dtype=torch.int64)
-    # prefix_nonimg = torch.tensor(data_loader.dataset.tokenizer.encode("Image: N/A", bos=False, eos=False), dtype=torch.int64)
 
     for data_iter_step, (examples, labels, values, example_mask, videos , audios) in enumerate(metric_logger.log_every(data_loader, print_freq, header)):
         # we use a per iteration (instead of per epoch) lr scheduler
@@ -118,7 +117,6 @@ def val_one_epoch(model: torch.nn.Module,
 
     prefix_audio = torch.tensor(data_loader.dataset.tokenizer.encode("Audio: ", bos=False, eos=False), dtype=torch.int64)
     prefix_video = torch.tensor(data_loader.dataset.tokenizer.encode("Video: ", bos=False, eos=False), dtype=torch.int64)
-    # prefix_nonimg = torch.tensor(data_loader.dataset.tokenizer.encode("Image: N/A", bos=False, eos=False), dtype=torch.int64)
 
     for data_iter_step, (examples, labels, values, example_mask, videos , audios) in enumerate(metric_logger.log_every(data_loader, print_freq, header)):
         # we use a per iteration (instead of per epoch) lr scheduler
@@ -141,7 +139,6 @@ def val_one_epoch(model: torch.nn.Module,
         metric_logger.update(closs=c_loss_value)
 
 
-        loss_value_reduce = misc.all_reduce_mean(loss_value)
         c_loss_value_reduce = misc.all_reduce_mean(c_loss_value)
         if log_writer is not None and (data_iter_step + 1) % accum_iter == 0:
             """ We use epoch_1000x as the x-axis in tensorboard.

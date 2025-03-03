@@ -870,20 +870,7 @@ class WhisperEncoder(WhisperPreTrainedModel):
                     )
 
                 hidden_states = layer_outputs[0]
-                if (idx+1)%4 == 0:
-                    ret_feats.append(hidden_states.mean(dim=1,keepdim=True))
-        #     if output_attentions:
-        #         all_attentions = all_attentions + (layer_outputs[1],)
-
-        # hidden_states = self.layer_norm(hidden_states)
-        # if output_hidden_states:
-        #     encoder_states = encoder_states + (hidden_states,)
-
-        # if not return_dict:
-        #     return tuple(v for v in [hidden_states, encoder_states, all_attentions] if v is not None)
-        # return BaseModelOutput(
-        #     last_hidden_state=hidden_states, hidden_states=encoder_states, attentions=all_attentions
-        # )
+                ret_feats.append(hidden_states.mean(dim=1,keepdim=True))
         return torch.cat(ret_feats, 1)
 
 class WhisperDecoder(WhisperPreTrainedModel):
