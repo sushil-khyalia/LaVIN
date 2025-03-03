@@ -102,8 +102,7 @@ class EmotionDatasetForRegression(Data.Dataset):
         self.split=split
         self.emotion = emotion
         self.raw_data = pd.read_csv(path)
-        #self.image_processor = VivitImageProcessor.from_pretrained("google/vivit-b-16x2-kinetics400")
-        self.video_processor = AutoProcessor.from_pretrained("Qwen/Qwen2-VL-7B-Instruct", min_pixels=56*56, max_pixels=56*56).image_processor
+        self.image_processor = VivitImageProcessor.from_pretrained("google/vivit-b-16x2-kinetics400")
         self.feature_extractor = WhisperFeatureExtractor.from_pretrained("openai/whisper-large-v3")
         print(f"number of examples in split {split}: {len(self.raw_data)}\n")
 
@@ -130,14 +129,10 @@ class EmotionDatasetForRegression(Data.Dataset):
     def __getitem__(self, idx):
         data_point = self.raw_data.iloc[idx]
         video_path = data_point['video']
-        video = load_video(video_path)
-        video_inputs = self.video_processor(images=video, return_tensors="pt")
-        video_pixel_values = video_inputs['pixel_values']
-        video_grid_thw = video_inputs['image_grid_thw']
-        # container = av.open(video_path)
-        # indices = sample_frame_indices(clip_len=32, frame_sample_rate=16, seg_len=container.streams.video[0].frames)
-        # video = read_video_pyav(container=container, indices=indices)
-        # video = self.image_processor(list(video), return_tensors="pt").pixel_values.squeeze(0)
+        container = av.open(video_path)
+        indices = sample_frame_indices(clip_len=32, frame_sample_rate=16, seg_len=container.streams.video[0].frames)
+        video = read_video_pyav(container=container, indices=indices)
+        video = self.image_processor(list(video), return_tensors="pt").pixel_values.squeeze(0)
         audio_path = data_point['audio']
         waveform, sampling_rate = soundfile.read(audio_path)
         audio = self.feature_extractor(waveform, sampling_rate=sampling_rate, return_tensors="pt").input_features.squeeze(0)
@@ -148,7 +143,7 @@ class EmotionDatasetForRegression(Data.Dataset):
         prompt_answer = f"The {self.emotion} is "
         example, labels, example_mask, label_mask=self.tokenize(prompt_text,prompt_answer)
         gc.collect()
-        return example, labels, torch.tensor(data_point['y']), example_mask, video_pixel_values, video_grid_thw, audio
+        return example, labels, torch.tensor(data_point['y']), example_mask, video, audio
 
     def __len__(self):
         return len(self.raw_data)

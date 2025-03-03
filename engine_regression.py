@@ -38,14 +38,14 @@ def train_one_epoch(model: torch.nn.Module,
     prefix_audio = torch.tensor(data_loader.dataset.tokenizer.encode("Audio: ", bos=False, eos=False), dtype=torch.int64)
     prefix_video = torch.tensor(data_loader.dataset.tokenizer.encode("Video: ", bos=False, eos=False), dtype=torch.int64)
 
-    for data_iter_step, (examples, labels, values, example_mask, video_pixel_values, video_grid_thw , audios) in enumerate(metric_logger.log_every(data_loader, print_freq, header)):
+    for data_iter_step, (examples, labels, values, example_mask, audios) in enumerate(metric_logger.log_every(data_loader, print_freq, header)):
         # we use a per iteration (instead of per epoch) lr scheduler
         if data_iter_step % accum_iter == 0:
             lr_sched.adjust_learning_rate(optimizer, data_iter_step / len(data_loader) + epoch, args)
         prefix_audio=prefix_audio.to(examples.device)
         prefix_video=prefix_video.to(examples.device)
         values = values.float()
-        l1_loss, corr_loss = model(examples, labels, values, video_pixel_values = video_pixel_values, video_grid_thw = video_grid_thw, prefix_video = prefix_video, audios = audios, prefix_audio =  prefix_audio)
+        l1_loss, corr_loss = model(examples, labels, values, videos = videos, prefix_video = prefix_video, audios = audios, prefix_audio =  prefix_audio)
         c_loss = 0.9*l1_loss + 0.1*corr_loss
         loss = c_loss
         loss_value = loss.item()
@@ -117,12 +117,12 @@ def val_one_epoch(model: torch.nn.Module,
     prefix_audio = torch.tensor(data_loader.dataset.tokenizer.encode("Audio: ", bos=False, eos=False), dtype=torch.int64)
     prefix_video = torch.tensor(data_loader.dataset.tokenizer.encode("Video: ", bos=False, eos=False), dtype=torch.int64)
 
-    for data_iter_step, (examples, labels, values, example_mask, video_pixel_values, video_grid_thw , audios) in enumerate(metric_logger.log_every(data_loader, print_freq, header)):
+    for data_iter_step, (examples, labels, values, example_mask, videos, audios) in enumerate(metric_logger.log_every(data_loader, print_freq, header)):
         # we use a per iteration (instead of per epoch) lr scheduler
         prefix_audio=prefix_audio.to(examples.device)
         prefix_video=prefix_video.to(examples.device)
         values = values.float()
-        l1_loss, corr_loss = model(examples, labels, values, video_pixel_values = video_pixel_values, video_grid_thw = video_grid_thw, prefix_video = prefix_video, audios = audios, prefix_audio =  prefix_audio)
+        l1_loss, corr_loss = model(examples, labels, values, videos = videos, prefix_video = prefix_video, audios = audios, prefix_audio =  prefix_audio)
         c_loss = 0.9*l1_loss + 0.1*corr_loss
         loss = c_loss
         loss_value = loss.item()

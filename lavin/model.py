@@ -350,12 +350,11 @@ class Transformer(nn.Module):
 
         examples = examples.cuda()
         labels = labels.cuda()
-        # video_pixel_values = video_pixel_values.cuda()
-        # video_grid_thw = video_grid_thw.cuda()
+        videos = videos.cuda()
         audios =  audios.cuda()
         prefix_video = prefix_video.cuda()
         prefix_audio = prefix_audio.cuda()
-        video_embeds = torch.stack([self.video_backbone(x.half().cuda(), y.cuda()) for x,y in zip(video_pixel_values, video_grid_thw)])
+        video_embeds = self.video_backbone(videos.half())
         audio_embeds = self.audio_backbone(audios.half())
 
         # with autocast():
@@ -406,25 +405,6 @@ class Transformer(nn.Module):
         c_loss = self.criterion(output, labels)
         return c_loss
     
-class TransformerForClassification(nn.Module):
-    def __init__(self, params: ModelArgs, num_classes):
-        super().__init__()
-        self.transformer = Transformer(params)
-
-        self.output_classification = nn.Linear(params.dim, num_classes)
-        nn.init.xavier_uniform_( self.output_classification.weight)
-        nn.init.zeros_(self.output_classification.bias)
-        self.dropout = nn.Dropout(p=0.5)
-        self.criterion = nn.CrossEntropyLoss()
-
-    def forward(self, examples, labels, classes, videos = None, prefix_video = None, audios = None, prefix_audio = None):
-        classes = classes.cuda()
-        h, max_indices = self.transformer(examples, labels, videos=videos, prefix_video=prefix_video, audios=audios, prefix_audio=prefix_audio, return_hidden=True)
-        output = self.output_classification(self.droupout(h[torch.arange(h.shape[0]), max_indices].float()))
-        output = self.dropout(output)
-        loss = self.criterion(output, classes)
-        return loss
-    
 class TransformerForRegression(nn.Module):
     def __init__(self, params: ModelArgs):
         super().__init__()
@@ -436,16 +416,16 @@ class TransformerForRegression(nn.Module):
         self.l1_loss = nn.L1Loss()
         self.corr_loss = ccc_loss
 
-    def forward(self, examples, labels, values,  video_pixel_values=None, video_grid_thw=None, prefix_video = None, audios = None, prefix_audio = None):
+    def forward(self, examples, labels, values, videos, prefix_video = None, audios = None, prefix_audio = None):
         values = values.cuda()
-        h, max_indices = self.transformer(examples, labels,  video_pixel_values=video_pixel_values, video_grid_thw=video_grid_thw, prefix_video=prefix_video, audios=audios, prefix_audio=prefix_audio, return_hidden=True)
+        h, max_indices = self.transformer(examples, labels, videos = videos, prefix_video=prefix_video, audios=audios, prefix_audio=prefix_audio, return_hidden=True)
         output = self.output_regression(self.dropout(h[torch.arange(h.shape[0]), max_indices].float())).squeeze(1)
         l1_loss = self.l1_loss(output, values)
         corr_loss = self.corr_loss(output, values)
         return l1_loss, corr_loss
     
-    def predict(self, examples, labels, values,  video_pixel_values=None, video_grid_thw=None, prefix_video = None, audios = None, prefix_audio = None):
+    def predict(self, examples, labels, values, videos, prefix_video = None, audios = None, prefix_audio = None):
         values = values.cuda()
-        h, max_indices = self.transformer(examples, labels,  video_pixel_values=video_pixel_values, video_grid_thw=video_grid_thw, prefix_video=prefix_video, audios=audios, prefix_audio=prefix_audio, return_hidden=True)
+        h, max_indices = self.transformer(examples, labels, videos = videos, prefix_video=prefix_video, audios=audios, prefix_audio=prefix_audio, return_hidden=True)
         output = self.output_regression(self.dropout(h[torch.arange(h.shape[0]), max_indices].float())).squeeze(1)
         return output
